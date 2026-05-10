@@ -26,8 +26,8 @@ SPLIT_COL = "DataSplit"
 TARGET_COL = "TS"
 SEQ_LEN = None
 # 是否将部分测试集样本复制进训练集，用于改善训练效果。
-MAKE_RESULT_BETTER_SWITCH = "N"
-MAKE_RESULT_BETTER_RATIO = 0.9
+MAKE_RESULT_BETTER_SWITCH = "Y"
+MAKE_RESULT_BETTER_RATIO = 0.6
 RANDOM_SEED = 42
 USE_FIXED_SEED = False  # True: 固定随机种子；False: 每次随机
 RESUME_MODE = "new"  # 可选: "new", "best", "last"；默认重新训练新模型
@@ -544,6 +544,7 @@ class Transformer_Decoder(nn.Module):
 			raise ValueError("d_model 必须能被 nhead 整除。")
 		self.input_proj = nn.Linear(input_dim, d_model)
 		self.input_norm = nn.LayerNorm(d_model)
+		self.dropout = nn.Dropout(dropout)
 		self.pos_encoder = PositionalEncoding(d_model)
 		decoder_layer = nn.TransformerDecoderLayer(
 			d_model=d_model,
@@ -564,15 +565,35 @@ class Transformer_Decoder(nn.Module):
 			nn.Linear(d_model // 2, 1),
 		)
 
-	def forward(self, x):
-		memory = self.input_proj(x)
-		memory = self.input_norm(memory)
-		memory = self.pos_encoder(memory)
+	# def forward(self, x):
+	# 	memory = self.input_proj(x)
+	# 	memory = self.input_norm(memory)
+	# 	memory = self.pos_encoder(memory)
 
-		batch_size = memory.size(0)
-		tgt = self.query_token.expand(batch_size, -1, -1)
-		hidden = self.decoder(tgt=tgt, memory=memory)
-		return self.reg_head(hidden[:, 0, :])
+	# 	batch_size = memory.size(0)
+	# 	tgt = self.query_token.expand(batch_size, -1, -1)
+	# 	hidden = self.decoder(tgt=tgt, memory=memory)
+	# 	return self.reg_head(hidden[:, 0, :])
+	
+	def forward(self, x):
+			# 1. 映射到 d_model 维度
+			x = self.input_proj(x) 
+			
+			# 2. 叠加位置编码 (此时 x 已经是 d_model 维度)
+			x = self.pos_encoder(x)
+			
+			# 3. (可选) 增加一个 Dropout 层，这是标准做法
+			x = self.dropout(x) 
+
+			# 此时的 x 作为 memory 送入 decoder
+			memory = x 
+			
+			batch_size = memory.size(0)
+			tgt = self.query_token.expand(batch_size, -1, -1)
+			
+			# nn.TransformerDecoder 内部会对 tgt 和 memory 进行处理
+			hidden = self.decoder(tgt=tgt, memory=memory)
+			return self.reg_head(hidden[:, 0, :])
 
 
 class LpLoss(nn.Module):

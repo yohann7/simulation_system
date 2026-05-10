@@ -10,8 +10,8 @@ import pandas as pd
 import torch
 from torch.utils.data import DataLoader, Dataset
 
-path = r"data_model_parameter"
-path_model = r"best(10.5936,15.7917,78.3356).pth"
+path = r"data_model_parameter(3)"
+path_model = r"best(10.3940,15.5928,88.9469).pth"
 SCRIPT_DIR = Path(__file__).resolve().parent
 ROOT_DIR = SCRIPT_DIR.parents[3]
 MODEL_MODULE_PATH = SCRIPT_DIR / "data_driven_model.py"
@@ -19,7 +19,7 @@ DATA_PATH = SCRIPT_DIR.parent / "sim_T" / "output_data" / "process_data_new.csv"
 OLD_DATA_PATH = SCRIPT_DIR.parent / "sim_T" / "output_data" / "process_data_old.csv"
 MODEL_PATH = Path(__file__).resolve().parent / "param" / "train" / path / path_model
 NORM_PARAMS_PATH = Path(__file__).resolve().parent / "param" / "train" / path / "norm_params.npz"
-ANOMALY_DIFF_THRESHOLD = 40 # 预测误差绝对值超过该阈值的样本将被视为异常值并删除
+ANOMALY_DIFF_THRESHOLD = 30 # 预测误差绝对值超过该阈值的样本将被视为异常值并删除
 
 
 def load_model_module():
