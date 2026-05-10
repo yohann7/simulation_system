@@ -1,8 +1,5 @@
 Transformer_Decoder(
   (input_proj): Linear(in_features=10, out_features=128, bias=True)
-  (input_norm): LayerNorm((128,), eps=1e-05, elementwise_affine=True)
-  (dropout): Dropout(p=0.3, inplace=False)
-  (pos_encoder): PositionalEncoding()
   (decoder): TransformerDecoder(
     (layers): ModuleList(
       (0-1): 2 x TransformerDecoderLayer(
@@ -12,23 +9,19 @@ Transformer_Decoder(
         (multihead_attn): MultiheadAttention(
           (out_proj): NonDynamicallyQuantizableLinear(in_features=128, out_features=128, bias=True)
         )
-        (linear1): Linear(in_features=128, out_features=256, bias=True)
-        (dropout): Dropout(p=0.3, inplace=False)
-        (linear2): Linear(in_features=256, out_features=128, bias=True)
+        (linear1): Linear(in_features=128, out_features=2048, bias=True)
+        (dropout): Dropout(p=0.1, inplace=False)
+        (linear2): Linear(in_features=2048, out_features=128, bias=True)
         (norm1): LayerNorm((128,), eps=1e-05, elementwise_affine=True)
         (norm2): LayerNorm((128,), eps=1e-05, elementwise_affine=True)
         (norm3): LayerNorm((128,), eps=1e-05, elementwise_affine=True)
-        (dropout1): Dropout(p=0.3, inplace=False)
-        (dropout2): Dropout(p=0.3, inplace=False)
-        (dropout3): Dropout(p=0.3, inplace=False)
+        (dropout1): Dropout(p=0.1, inplace=False)
+        (dropout2): Dropout(p=0.1, inplace=False)
+        (dropout3): Dropout(p=0.1, inplace=False)
       )
     )
   )
   (reg_head): Sequential(
-    (0): LayerNorm((128,), eps=1e-05, elementwise_affine=True)
-    (1): Linear(in_features=128, out_features=64, bias=True)
-    (2): GELU(approximate='none')
-    (3): Dropout(p=0.3, inplace=False)
-    (4): Linear(in_features=64, out_features=1, bias=True)
+    (0): Linear(in_features=128, out_features=1, bias=True)
   )
 )

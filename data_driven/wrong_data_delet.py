@@ -10,8 +10,8 @@ import pandas as pd
 import torch
 from torch.utils.data import DataLoader, Dataset
 
-path = r"data_model_parameter(3)"
-path_model = r"best(10.3940,15.5928,88.9469).pth"
+path = r"data_model_parameter(4)"
+path_model = r"best(7.2216,12.9054,98.3887).pth"
 SCRIPT_DIR = Path(__file__).resolve().parent
 ROOT_DIR = SCRIPT_DIR.parents[3]
 MODEL_MODULE_PATH = SCRIPT_DIR / "data_driven_model.py"

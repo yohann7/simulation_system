@@ -26,7 +26,7 @@ SPLIT_COL = "DataSplit"
 TARGET_COL = "TS"
 SEQ_LEN = None
 # 是否将部分测试集样本复制进训练集，用于改善训练效果。
-MAKE_RESULT_BETTER_SWITCH = "Y"
+MAKE_RESULT_BETTER_SWITCH = "N"
 MAKE_RESULT_BETTER_RATIO = 0.6
 RANDOM_SEED = 42
 USE_FIXED_SEED = False  # True: 固定随机种子；False: 每次随机
@@ -528,72 +528,44 @@ class PositionalEncoding(nn.Module):
 
 
 class Transformer_Decoder(nn.Module):
-	"""基于 Transformer Decoder 的单输出回归模型。MultiScaleConvRegressor"""
+    def __init__(self, input_dim, d_model=128, n_queries=4, nhead=4, num_layers=2):
+        super().__init__()
+        self.n_queries = n_queries  # 设置专家（Query）的数量
+        
+        # 1. 初始化：改为 (1, n_queries, d_model)
+        self.query_token = nn.Parameter(torch.zeros(1, n_queries, d_model))
+        nn.init.xavier_uniform_(self.query_token)
+        
+        # 其他层保持不变...
+        self.input_proj = nn.Linear(input_dim, d_model)
+        self.decoder = nn.TransformerDecoder(
+            nn.TransformerDecoderLayer(d_model=d_model, nhead=nhead, batch_first=True),
+            num_layers=num_layers
+        )
+        self.reg_head = nn.Sequential(
+            nn.Linear(d_model, 1) # 输入维度依然是 d_model
+        )
 
-	def __init__(
-		self,
-		input_dim,
-		d_model=128,
-		nhead=4,
-		num_layers=2,
-		dim_feedforward=256,
-		dropout=DROP_OUT,
-	):
-		super().__init__()
-		if d_model % nhead != 0:
-			raise ValueError("d_model 必须能被 nhead 整除。")
-		self.input_proj = nn.Linear(input_dim, d_model)
-		self.input_norm = nn.LayerNorm(d_model)
-		self.dropout = nn.Dropout(dropout)
-		self.pos_encoder = PositionalEncoding(d_model)
-		decoder_layer = nn.TransformerDecoderLayer(
-			d_model=d_model,
-			nhead=nhead,
-			dim_feedforward=dim_feedforward,
-			dropout=dropout,
-			batch_first=True,
-			activation="gelu",
-		)
-		self.decoder = nn.TransformerDecoder(decoder_layer, num_layers=num_layers)
-		self.query_token = nn.Parameter(torch.zeros(1, 1, d_model))
-		nn.init.xavier_uniform_(self.query_token)
-		self.reg_head = nn.Sequential(
-			nn.LayerNorm(d_model),
-			nn.Linear(d_model, d_model // 2),
-			nn.GELU(),
-			nn.Dropout(dropout),
-			nn.Linear(d_model // 2, 1),
-		)
-
-	# def forward(self, x):
-	# 	memory = self.input_proj(x)
-	# 	memory = self.input_norm(memory)
-	# 	memory = self.pos_encoder(memory)
-
-	# 	batch_size = memory.size(0)
-	# 	tgt = self.query_token.expand(batch_size, -1, -1)
-	# 	hidden = self.decoder(tgt=tgt, memory=memory)
-	# 	return self.reg_head(hidden[:, 0, :])
-	
-	def forward(self, x):
-			# 1. 映射到 d_model 维度
-			x = self.input_proj(x) 
-			
-			# 2. 叠加位置编码 (此时 x 已经是 d_model 维度)
-			x = self.pos_encoder(x)
-			
-			# 3. (可选) 增加一个 Dropout 层，这是标准做法
-			x = self.dropout(x) 
-
-			# 此时的 x 作为 memory 送入 decoder
-			memory = x 
-			
-			batch_size = memory.size(0)
-			tgt = self.query_token.expand(batch_size, -1, -1)
-			
-			# nn.TransformerDecoder 内部会对 tgt 和 memory 进行处理
-			hidden = self.decoder(tgt=tgt, memory=memory)
-			return self.reg_head(hidden[:, 0, :])
+    def forward(self, x):
+        # 处理输入 memory
+        memory = self.input_proj(x)
+        
+        # 2. 扩展 Query Token 到 Batch 大小
+        # batch_size x n_queries x d_model
+        batch_size = memory.size(0)
+        tgt = self.query_token.expand(batch_size, -1, -1)
+        
+        # 3. 经过 Decoder 交互
+        # 每个 query 都会与 memory 进行 Cross-Attention
+        # 输出形状: (batch_size, n_queries, d_model)
+        hidden = self.decoder(tgt=tgt, memory=memory)
+        
+        # 4. 关键步骤：在序列维度（n_queries 维度）取平均
+        # 从 (B, N, D) 变为 (B, D)
+        hidden_mean = hidden.mean(dim=1) 
+        
+        # 5. 最后送入回归头
+        return self.reg_head(hidden_mean)
 
 
 class LpLoss(nn.Module):

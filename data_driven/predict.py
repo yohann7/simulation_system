@@ -365,7 +365,7 @@ if __name__ == "__main__":
     #     "TS": 1047
     #     },index=[0])
 
-    n = 15
+    n = 2
     demo = process_df.iloc[[n-2]]
     
     time, tem0, tem1 = predict_temperatures(demo)
