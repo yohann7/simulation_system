@@ -10,8 +10,8 @@ import pandas as pd
 import torch
 from torch.utils.data import DataLoader, Dataset
 
-path = r"data_model_parameter(4)"
-path_model = r"best(7.2216,12.9054,98.3887).pth"
+path = r"data_model_parameter(8)"
+path_model = r"best(7.3381,12.7207,80.1893).pth"
 SCRIPT_DIR = Path(__file__).resolve().parent
 ROOT_DIR = SCRIPT_DIR.parents[3]
 MODEL_MODULE_PATH = SCRIPT_DIR / "data_driven_model.py"
@@ -19,7 +19,7 @@ DATA_PATH = SCRIPT_DIR.parent / "sim_T" / "output_data" / "process_data_new.csv"
 OLD_DATA_PATH = SCRIPT_DIR.parent / "sim_T" / "output_data" / "process_data_old.csv"
 MODEL_PATH = Path(__file__).resolve().parent / "param" / "train" / path / path_model
 NORM_PARAMS_PATH = Path(__file__).resolve().parent / "param" / "train" / path / "norm_params.npz"
-ANOMALY_DIFF_THRESHOLD = 30 # 预测误差绝对值超过该阈值的样本将被视为异常值并删除
+ANOMALY_DIFF_THRESHOLD = 300 # 预测误差绝对值超过该阈值的样本将被视为异常值并删除
 
 
 def load_model_module():
@@ -196,6 +196,31 @@ def plot_diff_distribution(diff):
 	plt.close(fig)
 
 
+def find_wrong_data(df, value=30, output_path=None):
+	"""提取预测与真实偏差超过阈值的样本并保存。"""
+	if df is None or df.empty:
+		return df
+	if output_path is None:
+		output_path = SCRIPT_DIR / "wrong_data.csv"
+
+	if "abs_diff" in df.columns:
+		abs_diff = df["abs_diff"].to_numpy()
+	elif "pred_ts" in df.columns and MODEL_MODULE.TARGET_COL in df.columns:
+		abs_diff = np.abs(df["pred_ts"].to_numpy() - df[MODEL_MODULE.TARGET_COL].to_numpy())
+	else:
+		raise ValueError("缺少用于计算偏差的列，请先生成 pred_ts/abs_diff。")
+
+	mask = abs_diff > value
+	wrong_df = df.loc[mask].copy()
+	wrong_df.insert(0, "origin_row", wrong_df.index.to_numpy() + 1)
+	wrong_df.to_csv(output_path, index=False, encoding="utf-8-sig")
+	print(f"偏差超过 {value} 的样本数: {len(wrong_df)}")
+	print(f"已保存异常样本: {output_path}")
+	return wrong_df
+
+
+
+
 def main():
 	device = "cuda" if torch.cuda.is_available() else "cpu"
 	print(f"使用设备: {device}")
@@ -224,6 +249,7 @@ def main():
 	archive_and_save_clean_data(original_df, diff, threshold=ANOMALY_DIFF_THRESHOLD)
 
 	plot_diff_distribution(diff)
+	find_wrong_data(df, value=30)
 
 
 if __name__ == "__main__":

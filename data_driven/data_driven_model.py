@@ -1,6 +1,9 @@
 """
 基于 Transformer Decoder 的抗拉强度预测模型。
 
+tensorboard启动命令
+tensorboard --logdir data_driven/runs
+
 数据说明:
 1. 前 18 列为非时序工艺数据，其中 Tensile Strength(MPa) 为标签列。
 2. 除标签外其余 17 列作为元素含量特征，并在时间维复制 53 份。
@@ -10,12 +13,14 @@
 from pathlib import Path
 import random
 import re
+from datetime import datetime
 
 import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, Dataset
+from torch.utils.tensorboard import SummaryWriter
 
 DATA_PATH = Path(__file__).parents[1] / "data_augmentation" /"output_data"/ "all_process_data.csv"
 # DATA_PATH = Path(r"math_sim\82A\v6（yang数据）\data_augmentation\augmented_process_data.csv")
@@ -31,12 +36,14 @@ MAKE_RESULT_BETTER_RATIO = 0.6
 RANDOM_SEED = 42
 USE_FIXED_SEED = False  # True: 固定随机种子；False: 每次随机
 RESUME_MODE = "new"  # 可选: "new", "best", "last"；默认重新训练新模型
-EPOCH = 300
+EPOCH = 500
 LR = 5e-4
 USE_LR_SCHEDULER = True
-T_MAX = 300
+T_MAX = EPOCH
 MIN_LR = 1e-7
-DROP_OUT = 0.3
+DROP_OUT = 0.4
+USE_TENSORBOARD = True
+TENSORBOARD_LOG_DIR = Path(__file__).parent / "runs"
 
 ELEMENT_COLS = [
 	"C_ELE",
@@ -402,6 +409,7 @@ def run_holdout_training(
 	device,
 	resume_mode="new",
 	target_col=TARGET_COL,
+	log_dir=None,
 ):
 	"""按固定训练/验证/测试划分执行一次完整训练。"""
 	x_train, y_train, x_val, y_val, x_test, y_test, norm_params = preprocess_data(
@@ -440,12 +448,37 @@ def run_holdout_training(
 	best_state = None
 	last_state = clone_state_dict(model)
 	val_losses = []
+	writer = SummaryWriter(log_dir=log_dir) if log_dir is not None else None
 
 	for epoch in range(1, EPOCH + 1):
 		train_loss = run_one_epoch(model, train_loader, criterion, optimizer=optimizer, device=device)
 		val_loss = run_one_epoch(model, val_loader, criterion, optimizer=None, device=device)
 		if scheduler is not None:
 			scheduler.step()
+
+		if writer is not None:
+			train_mae, train_rmse, _, train_r2 = evaluate(
+				model,
+				train_loader,
+				target_params=norm_params["target_z_score"],
+				device=device,
+			)
+			val_mae, val_rmse, _, val_r2 = evaluate(
+				model,
+				val_loader,
+				target_params=norm_params["target_z_score"],
+				device=device,
+			)
+			current_lr = optimizer.param_groups[0]["lr"]
+			writer.add_scalar("loss/train", train_loss, epoch)
+			writer.add_scalar("loss/val", val_loss, epoch)
+			writer.add_scalar("lr", current_lr, epoch)
+			writer.add_scalar("metrics/train_mae", train_mae, epoch)
+			writer.add_scalar("metrics/train_rmse", train_rmse, epoch)
+			writer.add_scalar("metrics/train_r2", train_r2, epoch)
+			writer.add_scalar("metrics/val_mae", val_mae, epoch)
+			writer.add_scalar("metrics/val_rmse", val_rmse, epoch)
+			writer.add_scalar("metrics/val_r2", val_r2, epoch)
 
 		if val_loss < best_val:
 			best_val = val_loss
@@ -465,18 +498,30 @@ def run_holdout_training(
 		best_state = clone_state_dict(model)
 
 	model.load_state_dict(best_state)
-	val_mae, val_rmse, val_max_error = evaluate(
+	val_mae, val_rmse, val_max_error, val_r2 = evaluate(
 		model,
 		val_loader,
 		target_params=norm_params["target_z_score"],
 		device=device,
 	)
-	test_mae, test_rmse, test_max_error = evaluate(
+	test_mae, test_rmse, test_max_error, test_r2 = evaluate(
 		model,
 		test_loader,
 		target_params=norm_params["target_z_score"],
 		device=device,
 	)
+
+	if writer is not None:
+		writer.add_scalar("metrics/final_val_mae", val_mae, EPOCH)
+		writer.add_scalar("metrics/final_val_rmse", val_rmse, EPOCH)
+		writer.add_scalar("metrics/final_val_max_error", val_max_error, EPOCH)
+		writer.add_scalar("metrics/final_val_r2", val_r2, EPOCH)
+		writer.add_scalar("metrics/final_test_mae", test_mae, EPOCH)
+		writer.add_scalar("metrics/final_test_rmse", test_rmse, EPOCH)
+		writer.add_scalar("metrics/final_test_max_error", test_max_error, EPOCH)
+		writer.add_scalar("metrics/final_test_r2", test_r2, EPOCH)
+		writer.flush()
+		writer.close()
 
 	return {
 		"best_val": best_val,
@@ -489,9 +534,11 @@ def run_holdout_training(
 		"val_mae": val_mae,
 		"val_rmse": val_rmse,
 		"val_max_error": val_max_error,
+		"val_r2": val_r2,
 		"test_mae": test_mae,
 		"test_rmse": test_rmse,
 		"test_max_error": test_max_error,
+		"test_r2": test_r2,
 	}
 
 
@@ -528,7 +575,7 @@ class PositionalEncoding(nn.Module):
 
 
 class Transformer_Decoder(nn.Module):
-    def __init__(self, input_dim, d_model=128, n_queries=4, nhead=4, num_layers=2):
+    def __init__(self, input_dim, d_model=64, n_queries=2, nhead=2, num_layers=2):
         super().__init__()
         self.n_queries = n_queries  # 设置专家（Query）的数量
         
@@ -538,13 +585,8 @@ class Transformer_Decoder(nn.Module):
         
         # 其他层保持不变...
         self.input_proj = nn.Linear(input_dim, d_model)
-        self.decoder = nn.TransformerDecoder(
-            nn.TransformerDecoderLayer(d_model=d_model, nhead=nhead, batch_first=True),
-            num_layers=num_layers
-        )
-        self.reg_head = nn.Sequential(
-            nn.Linear(d_model, 1) # 输入维度依然是 d_model
-        )
+        self.decoder = nn.TransformerDecoder(nn.TransformerDecoderLayer(d_model=d_model, nhead=nhead, batch_first=True),num_layers=num_layers)
+        self.reg_head = nn.Sequential(nn.Linear(d_model, 1))
 
     def forward(self, x):
         # 处理输入 memory
@@ -610,7 +652,7 @@ def run_one_epoch(model, dataloader, criterion, optimizer=None, device="cpu"):
 
 
 def evaluate(model, dataloader, target_params=None, device="cpu"):
-	"""计算 MAE、RMSE 和最大偏差。若提供 target_params 则先反归一化到原始量纲。"""
+	"""计算 MAE、RMSE、最大偏差与 R2。若提供 target_params 则先反归一化到原始量纲。"""
 	model.eval()
 	preds = []
 	trues = []
@@ -633,11 +675,20 @@ def evaluate(model, dataloader, target_params=None, device="cpu"):
 	mae = np.mean(abs_errors)
 	rmse = np.sqrt(np.mean((y_pred - y_true) ** 2))
 	max_error = np.max(abs_errors)
-	return mae, rmse, max_error
+	ss_res = np.sum((y_true - y_pred) ** 2)
+	ss_tot = np.sum((y_true - np.mean(y_true)) ** 2)
+	r2 = 0.0 if ss_tot == 0 else 1 - ss_res / ss_tot
+	return mae, rmse, max_error, r2
 
 
 def main():
 	"""主流程：按 Train/Val/Test 划分训练模型并评估。"""
+	log_dir = None
+	if USE_TENSORBOARD:
+		run_tag = datetime.now().strftime("%Y%m%d_%H%M%S")
+		log_dir = TENSORBOARD_LOG_DIR / f"train_{run_tag}"
+		log_dir.mkdir(parents=True, exist_ok=True)
+		print(f"TensorBoard 日志目录: {log_dir}")
 	# Step 1: 配置随机性与计算设备。
 	if USE_FIXED_SEED:
 		set_seed(RANDOM_SEED)
@@ -686,6 +737,7 @@ def main():
 		device=device,
 		resume_mode=resume_mode,
 		target_col=TARGET_COL,
+		log_dir=log_dir,
 	)
 
 	best_overall_state = holdout_result["best_state"]
@@ -701,7 +753,7 @@ def main():
 	# Step 7: 创建参数目录，分别保存最佳模型与最后一轮模型。
 	param_dir = create_unique_param_dir()
 	best_fold_model.load_state_dict(best_overall_state)
-	best_mae, best_rmse, best_max_error = evaluate(
+	best_mae, best_rmse, best_max_error, best_r2 = evaluate(
 		best_fold_model,
 		test_loader,
 		target_params=best_norm_params["target_z_score"],
@@ -711,7 +763,7 @@ def main():
 	save_model_state(best_overall_state, best_model_path)
 
 	best_fold_model.load_state_dict(best_overall_last_state)
-	last_mae, last_rmse, last_max_error = evaluate(
+	last_mae, last_rmse, last_max_error, last_r2 = evaluate(
 		best_fold_model,
 		test_loader,
 		target_params=best_norm_params["target_z_score"],
@@ -736,9 +788,11 @@ def main():
 	print(f"最佳模型测试集 MAE : {best_mae:.4f}")
 	print(f"最佳模型测试集 RMSE: {best_rmse:.4f}")
 	print(f"最佳模型测试集最大偏差: {best_max_error:.4f}")
+	print(f"最佳模型测试集 R2  : {best_r2:.4f}")
 	print(f"最后一轮模型测试集 MAE : {last_mae:.4f}")
 	print(f"最后一轮模型测试集 RMSE: {last_rmse:.4f}")
 	print(f"最后一轮模型测试集最大偏差: {last_max_error:.4f}")
+	print(f"最后一轮模型测试集 R2  : {last_r2:.4f}")
 
 
 if __name__ == "__main__":

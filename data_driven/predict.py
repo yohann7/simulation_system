@@ -124,10 +124,14 @@ def _resolve_device(device):
 @lru_cache(maxsize=1)
 def _load_predict_assets():
     model_dir = Path(__file__).resolve().parent/ "param" / "predict"
-    model_candidates = sorted(model_dir.glob("fine_tuned_head_only*.pth"))
+    model_candidates = sorted(model_dir.glob("best*.pth"))
     if not model_candidates:
-        raise FileNotFoundError(f"未找到模型参数文件: {model_dir}"
-                                " (匹配 fine_tuned_head_only*.pth)")
+        model_candidates = sorted(model_dir.glob("fine_tuned_head_only*.pth"))
+    if not model_candidates:
+        raise FileNotFoundError(
+            f"未找到模型参数文件: {model_dir}"
+            " (匹配 best*.pth 或 fine_tuned_head_only*.pth)"
+        )
     model_path = model_candidates[-1]
 
     norm_path = model_dir / "norm_params.npz"
@@ -365,7 +369,7 @@ if __name__ == "__main__":
     #     "TS": 1047
     #     },index=[0])
 
-    n = 2
+    n = 10
     demo = process_df.iloc[[n-2]]
     
     time, tem0, tem1 = predict_temperatures(demo)

@@ -380,6 +380,24 @@ def run_all_simulations(process_data, n_workers=0, dt_override=None, params_list
 
 	return sim_df[ordered_cols]
 
+def delete_wrong_rows(df):
+	"""删除数据缺失的异常行。"""
+	if df is None or df.empty:
+		return df
+
+	element_cols = [col for col in df.columns if "_ELE" in col]
+	speed_cols = [f"SPEED{i}" for i in range(1, 11) if f"SPEED{i}" in df.columns]
+	check_cols = element_cols + speed_cols
+	if "TS" in df.columns:
+		check_cols.append("TS")
+
+	if not check_cols:
+		return df.copy()
+
+	mask = (df[check_cols] != 0).all(axis=1)
+	df_new = df.loc[mask].copy()
+	return df_new
+
 
 if __name__ == "__main__":
 	project_root = Path(__file__).resolve().parents[1]
@@ -388,6 +406,9 @@ if __name__ == "__main__":
 	excel_path = Path(__file__).parents[1] / "工艺数据全.xlsx"
 
 	process_data = load_process_data(excel_path)
+	print(f"原始 process_data shape: {process_data.shape}")
+	process_data = delete_wrong_rows(process_data)
+	print(f"删除异常行后 process_data shape: {process_data.shape}")
 	all_sim_t = run_all_simulations(process_data)
 	all_sim_t.to_csv(all_sim_t_path, index=False, encoding="utf-8-sig")
 
