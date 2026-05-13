@@ -6,8 +6,7 @@ tensorboard --logdir data_driven/runs
 
 数据说明:
 1. 前 18 列为非时序工艺数据，其中 Tensile Strength(MPa) 为标签列。
-2. 除标签外其余 17 列作为元素含量特征，并在时间维复制 53 份。
-3. 0(0)~52(0) 为非搭接点温度序列，0(1)~52(1) 为搭接点温度序列。
+
 """
 
 from pathlib import Path
@@ -43,12 +42,12 @@ MAKE_RESULT_BETTER_RATIO = 0.6
 RANDOM_SEED = 42
 USE_FIXED_SEED = False  # True: 固定随机种子；False: 每次随机
 RESUME_MODE = "new"  # 可选: "new", "best", "last"；默认重新训练新模型
-EPOCH = 10
+EPOCH = 500
 LR = 5e-4
 USE_LR_SCHEDULER = True
 T_MAX = EPOCH
 MIN_LR = 1e-7
-DROP_OUT = 0.2
+DROP_OUT = 0.4
 USE_TENSORBOARD = True
 TENSORBOARD_LOG_DIR = Path(__file__).parent / "runs"
 
@@ -675,6 +674,8 @@ class Transformer_Decoder(nn.Module):
 
 		# 其他层保持不变...
 		self.input_proj = nn.Linear(input_dim, d_model)
+		self.pos_encoder = PositionalEncoding(d_model)
+		self.dropout = nn.Dropout(p=DROP_OUT)
 		self.decoder = nn.TransformerDecoder(
 			nn.TransformerDecoderLayer(d_model=d_model, nhead=nhead, batch_first=True),
 			num_layers=num_layers,
@@ -684,6 +685,8 @@ class Transformer_Decoder(nn.Module):
 	def forward(self, x):
 		# 处理输入 memory
 		memory = self.input_proj(x)
+		memory = self.pos_encoder(memory)
+		memory = self.dropout(memory)
 
 		# 2. 扩展 Query Token 到 Batch 大小
 		# batch_size x n_queries x d_model

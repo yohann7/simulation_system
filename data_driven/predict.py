@@ -86,12 +86,13 @@ def _load_predict_assets():
         raise KeyError("模型文件缺少 model_config。")
     norm_params = ddm.unpack_norm_params(checkpoint.get("norm"))
 
-    return checkpoint["model_state"], model_config, norm_params
+    model_seq_len = checkpoint.get("meta", {}).get("seq_len", None)
+    return checkpoint["model_state"], model_config, norm_params, model_seq_len
 
 
 @lru_cache(maxsize=8)
 def _get_model_runtime(input_dim, seq_len, device_str):
-    model_state, model_config, norm_params = _load_predict_assets()
+    model_state, model_config, norm_params, model_seq_len = _load_predict_assets()
     expected_dim = model_config.get("input_dim")
     if expected_dim is not None and expected_dim != input_dim:
         raise ValueError(f"模型输入维度不匹配: checkpoint={expected_dim}, 当前={input_dim}")
@@ -183,14 +184,19 @@ def predict_Ts(process_data, device="auto"):
         raise ValueError(f"process_data 缺少必要元素列: {missing_cols}")
 
     temp_t0_cols, temp_t1_cols = ddm.infer_temp_columns(process_data)
+
+    _, _, norm_params, model_seq_len = _load_predict_assets()
+    # 将温度列截断至模型训练时的序列长度，避免维度不匹配
+    if model_seq_len is not None and model_seq_len < len(temp_t0_cols):
+        temp_t0_cols = temp_t0_cols[:model_seq_len]
+        temp_t1_cols = temp_t1_cols[:model_seq_len]
+
     static_x = torch.as_tensor(process_data[element_cols].to_numpy(dtype="float32"))
     t0_x = torch.as_tensor(process_data[temp_t0_cols].to_numpy(dtype="float32"))
     t1_x = torch.as_tensor(process_data[temp_t1_cols].to_numpy(dtype="float32"))
 
     seq_len = len(temp_t0_cols)
     ddm.SEQ_LEN = seq_len
-
-    _, _, norm_params = _load_predict_assets()
     static_params = norm_params["static_z_score"]
     temp_params = norm_params["temp_z_score"]
     target_params = norm_params["target_z_score"]
@@ -305,7 +311,7 @@ if __name__ == "__main__":
     #     "TS": 1047
     #     },index=[0])
 
-    n = 10
+    n = 50
     demo = process_df.iloc[[n-2]]
     
     time, tem0, tem1 = predict_temperatures(demo)

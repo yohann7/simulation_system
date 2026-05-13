@@ -10,15 +10,14 @@ import pandas as pd
 import torch
 from torch.utils.data import DataLoader, Dataset
 
-path = r"data_model_parameter(8)"
-path_model = r"best(7.3381,12.7207,80.1893).pth"
+path = r"data_model_parameter"
+path_model = r"best.pt"
 SCRIPT_DIR = Path(__file__).resolve().parent
 ROOT_DIR = SCRIPT_DIR.parents[3]
 MODEL_MODULE_PATH = SCRIPT_DIR / "data_driven_model.py"
 DATA_PATH = SCRIPT_DIR.parent / "sim_T" / "output_data" / "process_data_new.csv"
 OLD_DATA_PATH = SCRIPT_DIR.parent / "sim_T" / "output_data" / "process_data_old.csv"
 MODEL_PATH = Path(__file__).resolve().parent / "param" / "train" / path / path_model
-NORM_PARAMS_PATH = Path(__file__).resolve().parent / "param" / "train" / path / "norm_params.npz"
 ANOMALY_DIFF_THRESHOLD = 300 # 预测误差绝对值超过该阈值的样本将被视为异常值并删除
 
 
@@ -77,44 +76,28 @@ class FullDataset(Dataset):
 		return self.x[idx], self.y[idx]
 
 
+def resolve_model_path():
+	"""按优先级解析 best.pt 路径。"""
+	candidates = [
+		MODEL_PATH,
+		SCRIPT_DIR / "param" / "predict" / path_model,
+		SCRIPT_DIR / "param" / "train" / path_model,
+	]
+	for candidate in candidates:
+		if candidate.exists():
+			return candidate
+	raise FileNotFoundError(
+		"模型参数文件不存在，已尝试: " + ", ".join(str(p) for p in candidates)
+	)
+
+
 def load_model(device="cpu"):
 	"""按保存参数构建并加载完整预测模型。"""
-	if not MODEL_PATH.exists():
-		raise FileNotFoundError(f"模型参数文件不存在: {MODEL_PATH}")
-	if not NORM_PARAMS_PATH.exists():
-		raise FileNotFoundError(f"归一化参数文件不存在: {NORM_PARAMS_PATH}")
-
-	norm_params = load_norm_params(NORM_PARAMS_PATH)
-	input_dim = len(MODEL_MODULE.ELEMENT_COLS) + 2
-	model = MODEL_MODULE.Transformer_Decoder(input_dim=input_dim).to(device)
-	MODEL_MODULE.load_model_state(model, MODEL_PATH, device=device)
+	model_path = resolve_model_path()
+	model, norm_params, _ = MODEL_MODULE.load_checkpoint(model_path, map_location=device)
+	model = model.to(device)
 	model.eval()
 	return model, norm_params
-
-
-def load_norm_params(norm_path):
-	"""优先复用模型模块接口；若不存在则按 npz 文件结构兼容加载。"""
-	if hasattr(MODEL_MODULE, "load_norm_params"):
-		return MODEL_MODULE.load_norm_params(norm_path)
-
-	with np.load(norm_path) as data:
-		required = [
-			"static_mean",
-			"static_std",
-			"temp_mean",
-			"temp_std",
-			"target_mean",
-			"target_std",
-		]
-		missing = [key for key in required if key not in data]
-		if missing:
-			raise KeyError(f"归一化参数文件缺少字段: {missing}")
-
-		return {
-			"static_z_score": {"mean": data["static_mean"], "std": data["static_std"]},
-			"temp_z_score": {"mean": data["temp_mean"], "std": data["temp_std"]},
-			"target_z_score": {"mean": data["target_mean"], "std": data["target_std"]},
-		}
 
 
 def predict_all(model, x_all, y_all, target_params, device="cpu", batch_size=256):

@@ -600,7 +600,7 @@ class simulation_model:
         u_avg = (fan_air_volume) * fan_status / fan_area
 
         # 搭接点被动换热折减系数 (无佳灵装置时搭接点线材密集、散热较慢)
-        blocking_factor = 0.9
+        blocking_factor = 0.88
 
         # 佳灵装置(Optiflex)风速分配 — 主动调节搭接/非搭接风速
         # 来源: Deng et al. (2025), DOI: 10.1007/s11665-024-09898-2
