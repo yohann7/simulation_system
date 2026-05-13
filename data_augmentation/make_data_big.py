@@ -64,7 +64,7 @@ def Jittering(origenal_data, data_attributes, n):
         if elemnts_vec.size == 0:
             return np.empty((n, 0))
         noise = np.random.normal(loc=0.0, scale=element_std * k, size=(n, elemnts_vec.size))
-        noise = _zero_mean_and_bound(noise, limit=0.05)
+        noise = _zero_mean_and_bound(noise, limit=k_element_limit)
         new_elemnts_vec = elemnts_vec[np.newaxis, :] + noise
         return new_elemnts_vec
 
@@ -72,7 +72,7 @@ def Jittering(origenal_data, data_attributes, n):
         if T_vec.size == 0:
             return np.empty((n, 0))
         noise = np.random.normal(loc=0.0, scale=temp_std * k, size=(n, T_vec.size))
-        noise = _zero_mean_and_bound(noise, limit=1.0)
+        noise = _zero_mean_and_bound(noise, limit=k_T_limit)
         new_T_vec = T_vec[np.newaxis, :] + noise
         return new_T_vec
 
@@ -82,7 +82,7 @@ def Jittering(origenal_data, data_attributes, n):
         if k == 0:
             return np.full(n, TS, dtype=float)
         delta_TS = np.random.normal(loc=0.0, scale=ts_std * k, size=n)
-        delta_TS = _zero_mean_and_bound(delta_TS.reshape(n, 1), limit=3.0).reshape(n)
+        delta_TS = _zero_mean_and_bound(delta_TS.reshape(n, 1), limit=k_TS_limit).reshape(n)
         new_TS = TS + delta_TS
         return new_TS
 
@@ -115,9 +115,12 @@ def Jittering(origenal_data, data_attributes, n):
 
         raise ValueError("生成的数据与原数据完全相同，请检查扰动幅度或原始数据是否过于离散。")
 
-    k_element = 0.08
-    k_T = 0.05
-    k_TS = 0
+    k_element = 0.1
+    k_T = 0.1
+    k_TS = 0.08
+    k_element_limit = 0.05
+    k_T_limit = 1.0
+    k_TS_limit = 1.0
 
     augmented_rows = []
     for _, row in origenal_data.iterrows():

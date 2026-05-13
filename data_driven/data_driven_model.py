@@ -26,7 +26,14 @@ DATA_PATH = Path(__file__).parents[1] / "data_augmentation" /"output_data"/ "all
 # DATA_PATH = Path(r"math_sim\82A\v6（yang数据）\data_augmentation\augmented_process_data.csv")
 PARAM_PARENT_DIR = Path(__file__).parent / "param" / "train"
 PARAM_DIR_BASE_NAME = "data_model_parameter"
-NORM_PARAMS_FILENAME = "norm_params.npz"
+BEST_MODEL_FILENAME = "best.pt"
+LAST_MODEL_FILENAME = "last.pt"
+DEFAULT_MODEL_CONFIG = {
+	"d_model": 64,
+	"n_queries": 2,
+	"nhead": 2,
+	"num_layers": 2,
+}
 SPLIT_COL = "DataSplit"
 TARGET_COL = "TS"
 SEQ_LEN = None
@@ -36,12 +43,12 @@ MAKE_RESULT_BETTER_RATIO = 0.6
 RANDOM_SEED = 42
 USE_FIXED_SEED = False  # True: 固定随机种子；False: 每次随机
 RESUME_MODE = "new"  # 可选: "new", "best", "last"；默认重新训练新模型
-EPOCH = 500
+EPOCH = 10
 LR = 5e-4
 USE_LR_SCHEDULER = True
 T_MAX = EPOCH
 MIN_LR = 1e-7
-DROP_OUT = 0.4
+DROP_OUT = 0.2
 USE_TENSORBOARD = True
 TENSORBOARD_LOG_DIR = Path(__file__).parent / "runs"
 
@@ -97,24 +104,45 @@ def set_seed(seed=RANDOM_SEED):
 		torch.cuda.manual_seed_all(seed)
 
 
+def _as_tensor(x, dtype=torch.float32):
+	"""将输入统一为 torch.Tensor。"""
+	if isinstance(x, torch.Tensor):
+		return x.to(dtype=dtype), True
+	return torch.as_tensor(x, dtype=dtype), False
+
+
 def z_score_fit_transform(train_x, eps=1e-8):
 	"""对训练集执行 z-score 归一化并返回参数。"""
-	mean = train_x.mean(axis=0)
-	std = train_x.std(axis=0)
-	std_safe = np.maximum(std, eps)
-	train_scaled = (train_x - mean) / std_safe
+	train_tensor, is_tensor = _as_tensor(train_x)
+	mean = train_tensor.mean(dim=0)
+	std = train_tensor.std(dim=0, unbiased=False)
+	std_safe = torch.clamp(std, min=eps)
+	train_scaled = (train_tensor - mean) / std_safe
 	params = {"mean": mean, "std": std_safe}
-	return train_scaled, params
+	if is_tensor:
+		return train_scaled, params
+	return train_scaled.cpu().numpy(), {
+		"mean": params["mean"].cpu().numpy(),
+		"std": params["std"].cpu().numpy(),
+	}
 
 
 def z_score_transform(x, params):
 	"""用训练集参数对验证/测试集做 z-score 归一化。"""
-	return (x - params["mean"]) / params["std"]
+	x_tensor, is_tensor = _as_tensor(x)
+	mean = torch.as_tensor(params["mean"], dtype=x_tensor.dtype).to(x_tensor.device)
+	std = torch.as_tensor(params["std"], dtype=x_tensor.dtype).to(x_tensor.device)
+	result = (x_tensor - mean) / std
+	return result if is_tensor else result.cpu().numpy()
 
 
 def z_score_inverse_transform(x, params):
 	"""将 z-score 归一化后的数据反归一化。"""
-	return x * params["std"] + params["mean"]
+	x_tensor, is_tensor = _as_tensor(x)
+	mean = torch.as_tensor(params["mean"], dtype=x_tensor.dtype).to(x_tensor.device)
+	std = torch.as_tensor(params["std"], dtype=x_tensor.dtype).to(x_tensor.device)
+	result = x_tensor * std + mean
+	return result if is_tensor else result.cpu().numpy()
 
 
 def create_unique_param_dir(parent_dir=PARAM_PARENT_DIR, base_name=PARAM_DIR_BASE_NAME):
@@ -130,29 +158,72 @@ def create_unique_param_dir(parent_dir=PARAM_PARENT_DIR, base_name=PARAM_DIR_BAS
 		index += 1
 
 
-def format_metric_filename(base_name, mae, rmse, max_error):
-	"""按测试集指标生成模型文件名。"""
-	return f"{base_name}({mae:.4f},{rmse:.4f},{max_error:.4f}).pth"
+def pack_norm_params(norm_params):
+	"""打包归一化参数，用于保存到 checkpoint。"""
+	def _to_tensor(value):
+		if isinstance(value, torch.Tensor):
+			return value.detach().cpu().to(torch.float32)
+		return torch.as_tensor(value, dtype=torch.float32)
+
+	return {
+		"static_mean": _to_tensor(norm_params["static_z_score"]["mean"]),
+		"static_std": _to_tensor(norm_params["static_z_score"]["std"]),
+		"temp_mean": _to_tensor(norm_params["temp_z_score"]["mean"]),
+		"temp_std": _to_tensor(norm_params["temp_z_score"]["std"]),
+		"target_mean": _to_tensor(norm_params["target_z_score"]["mean"]),
+		"target_std": _to_tensor(norm_params["target_z_score"]["std"]),
+	}
 
 
-def save_norm_params(norm_params, norm_path):
-	"""保存归一化参数，便于后续加载模型后直接推理。"""
-	static_mean = np.asarray(norm_params["static_z_score"]["mean"], dtype=np.float32)
-	static_std = np.asarray(norm_params["static_z_score"]["std"], dtype=np.float32)
-	temp_mean = np.asarray(norm_params["temp_z_score"]["mean"], dtype=np.float32)
-	temp_std = np.asarray(norm_params["temp_z_score"]["std"], dtype=np.float32)
-	target_mean = np.asarray(norm_params["target_z_score"]["mean"], dtype=np.float32)
-	target_std = np.asarray(norm_params["target_z_score"]["std"], dtype=np.float32)
+def unpack_norm_params(norm_dict):
+	"""从 checkpoint 中解析归一化参数。"""
+	if norm_dict is None:
+		raise KeyError("checkpoint 中缺少归一化参数。")
+	return {
+		"static_z_score": {
+			"mean": torch.as_tensor(norm_dict["static_mean"], dtype=torch.float32),
+			"std": torch.as_tensor(norm_dict["static_std"], dtype=torch.float32),
+		},
+		"temp_z_score": {
+			"mean": torch.as_tensor(norm_dict["temp_mean"], dtype=torch.float32),
+			"std": torch.as_tensor(norm_dict["temp_std"], dtype=torch.float32),
+		},
+		"target_z_score": {
+			"mean": torch.as_tensor(norm_dict["target_mean"], dtype=torch.float32),
+			"std": torch.as_tensor(norm_dict["target_std"], dtype=torch.float32),
+		},
+	}
 
-	np.savez(
-		norm_path,
-		static_mean=static_mean,
-		static_std=static_std,
-		temp_mean=temp_mean,
-		temp_std=temp_std,
-		target_mean=target_mean,
-		target_std=target_std,
-	)
+
+def save_checkpoint(model, norm_params, save_path, model_config, meta=None):
+	"""保存模型与归一化参数到 .pt 文件。"""
+	checkpoint = {
+		"model_state": model.state_dict(),
+		"model_config": model_config,
+		"norm": pack_norm_params(norm_params),
+		"meta": meta or {},
+	}
+	torch.save(checkpoint, save_path)
+
+
+def load_checkpoint(load_path, map_location="cpu"):
+	"""从 .pt 文件加载模型与归一化参数。"""
+	if not load_path.exists():
+		raise FileNotFoundError(f"模型参数文件不存在: {load_path}")
+	try:
+		with torch.serialization.safe_globals([torch.torch_version.TorchVersion]):
+			checkpoint = torch.load(load_path, map_location=map_location, weights_only=True)
+	except Exception:
+		checkpoint = torch.load(load_path, map_location=map_location, weights_only=False)
+	if not isinstance(checkpoint, dict) or "model_state" not in checkpoint:
+		raise TypeError("checkpoint 格式不正确，需包含 model_state。")
+	model_config = checkpoint.get("model_config")
+	if not model_config or "input_dim" not in model_config:
+		raise KeyError("checkpoint 中缺少 model_config 或 input_dim。")
+	model = Transformer_Decoder(**model_config)
+	model.load_state_dict(checkpoint["model_state"], strict=True)
+	norm_params = unpack_norm_params(checkpoint.get("norm"))
+	return model, norm_params, checkpoint
 
 
 def save_model_state(model_state, save_path):
@@ -165,6 +236,8 @@ def load_model_state(model, load_path, device="cpu"):
 	if not load_path.exists():
 		raise FileNotFoundError(f"模型参数文件不存在: {load_path}")
 	state = torch.load(load_path, map_location=device)
+	if isinstance(state, dict) and "model_state" in state:
+		state = state["model_state"]
 	model.load_state_dict(state)
 	return model
 
@@ -178,7 +251,7 @@ def resolve_resume_path(resume_mode, parent_dir=PARAM_PARENT_DIR, base_name=PARA
 	"""根据续训模式解析最近一次保存的模型权重路径。"""
 	if resume_mode not in {"best", "last"}:
 		return None
-	pattern = "best*.pth" if resume_mode == "best" else "last*.pth"
+	pattern = BEST_MODEL_FILENAME if resume_mode == "best" else LAST_MODEL_FILENAME
 	pattern_dir = re.compile(rf"^{re.escape(base_name)}(?:\((\d+)\))?$")
 	candidate_dirs = []
 	if not parent_dir.exists():
@@ -193,9 +266,9 @@ def resolve_resume_path(resume_mode, parent_dir=PARAM_PARENT_DIR, base_name=PARA
 	if not candidate_dirs:
 		raise FileNotFoundError("未找到可用于续训的历史模型目录。")
 	for _, latest_dir in sorted(candidate_dirs, key=lambda item: item[0], reverse=True):
-		matches = sorted(latest_dir.glob(pattern))
+		matches = list(latest_dir.glob(pattern))
 		if matches:
-			return matches[-1]
+			return matches[0]
 	raise FileNotFoundError(f"未在历史目录中找到 {resume_mode} 模型文件。")
 
 
@@ -276,22 +349,22 @@ def preprocess_data(df, train_idx, val_idx, test_idx, target_col=TARGET_COL):
 	test_df = df.iloc[test_idx]
 
 	# 标签按列名提取并做 z-score 归一化
-	y_train_raw = train_df[target_col].to_numpy(dtype=np.float32).reshape(-1, 1)
-	y_val_raw = val_df[target_col].to_numpy(dtype=np.float32).reshape(-1, 1)
-	y_test_raw = test_df[target_col].to_numpy(dtype=np.float32).reshape(-1, 1)
+	y_train_raw = torch.as_tensor(train_df[target_col].to_numpy(dtype=np.float32)).view(-1, 1)
+	y_val_raw = torch.as_tensor(val_df[target_col].to_numpy(dtype=np.float32)).view(-1, 1)
+	y_test_raw = torch.as_tensor(test_df[target_col].to_numpy(dtype=np.float32)).view(-1, 1)
 
 	y_train_scaled, target_params = z_score_fit_transform(y_train_raw)
 	y_val_scaled = z_score_transform(y_val_raw, target_params)
 	y_test_scaled = z_score_transform(y_test_raw, target_params)
 
-	y_train = y_train_scaled.ravel().astype(np.float32)
-	y_val = y_val_scaled.ravel().astype(np.float32)
-	y_test = y_test_scaled.ravel().astype(np.float32)
+	y_train = y_train_scaled.view(-1)
+	y_val = y_val_scaled.view(-1)
+	y_test = y_test_scaled.view(-1)
 
 	# 元素特征按列名提取
-	train_static = train_df[ELEMENT_COLS].to_numpy(dtype=np.float32)
-	val_static = val_df[ELEMENT_COLS].to_numpy(dtype=np.float32)
-	test_static = test_df[ELEMENT_COLS].to_numpy(dtype=np.float32)
+	train_static = torch.as_tensor(train_df[ELEMENT_COLS].to_numpy(dtype=np.float32))
+	val_static = torch.as_tensor(val_df[ELEMENT_COLS].to_numpy(dtype=np.float32))
+	test_static = torch.as_tensor(test_df[ELEMENT_COLS].to_numpy(dtype=np.float32))
 
 	# 元素特征采用 z-score 归一化
 	train_static_scaled, static_params = z_score_fit_transform(train_static)
@@ -299,16 +372,16 @@ def preprocess_data(df, train_idx, val_idx, test_idx, target_col=TARGET_COL):
 	test_static_scaled = z_score_transform(test_static, static_params)
 
 	# 温度特征按列名提取
-	train_t0 = train_df[TEMP_T0_COLS].to_numpy(dtype=np.float32)
-	train_t1 = train_df[TEMP_T1_COLS].to_numpy(dtype=np.float32)
-	val_t0 = val_df[TEMP_T0_COLS].to_numpy(dtype=np.float32)
-	val_t1 = val_df[TEMP_T1_COLS].to_numpy(dtype=np.float32)
-	test_t0 = test_df[TEMP_T0_COLS].to_numpy(dtype=np.float32)
-	test_t1 = test_df[TEMP_T1_COLS].to_numpy(dtype=np.float32)
+	train_t0 = torch.as_tensor(train_df[TEMP_T0_COLS].to_numpy(dtype=np.float32))
+	train_t1 = torch.as_tensor(train_df[TEMP_T1_COLS].to_numpy(dtype=np.float32))
+	val_t0 = torch.as_tensor(val_df[TEMP_T0_COLS].to_numpy(dtype=np.float32))
+	val_t1 = torch.as_tensor(val_df[TEMP_T1_COLS].to_numpy(dtype=np.float32))
+	test_t0 = torch.as_tensor(test_df[TEMP_T0_COLS].to_numpy(dtype=np.float32))
+	test_t1 = torch.as_tensor(test_df[TEMP_T1_COLS].to_numpy(dtype=np.float32))
 
-	train_temp = np.stack([train_t0, train_t1], axis=2)  # [N,53,2]
-	val_temp = np.stack([val_t0, val_t1], axis=2)
-	test_temp = np.stack([test_t0, test_t1], axis=2)
+	train_temp = torch.stack([train_t0, train_t1], dim=2)  # [N,53,2]
+	val_temp = torch.stack([val_t0, val_t1], dim=2)
+	test_temp = torch.stack([test_t0, test_t1], dim=2)
 	seq_len = len(TEMP_T0_COLS)
 
 	train_temp_flat = train_temp.reshape(-1, 2)
@@ -318,13 +391,13 @@ def preprocess_data(df, train_idx, val_idx, test_idx, target_col=TARGET_COL):
 	val_temp_scaled = z_score_transform(val_temp.reshape(-1, 2), temp_params).reshape(val_temp.shape)
 	test_temp_scaled = z_score_transform(test_temp.reshape(-1, 2), temp_params).reshape(test_temp.shape)
 
-	train_static_seq = np.repeat(train_static_scaled[:, None, :], seq_len, axis=1)
-	val_static_seq = np.repeat(val_static_scaled[:, None, :], seq_len, axis=1)
-	test_static_seq = np.repeat(test_static_scaled[:, None, :], seq_len, axis=1)
+	train_static_seq = train_static_scaled.unsqueeze(1).repeat(1, seq_len, 1)
+	val_static_seq = val_static_scaled.unsqueeze(1).repeat(1, seq_len, 1)
+	test_static_seq = test_static_scaled.unsqueeze(1).repeat(1, seq_len, 1)
 
-	x_train = np.concatenate([train_static_seq, train_temp_scaled], axis=2).astype(np.float32)
-	x_val = np.concatenate([val_static_seq, val_temp_scaled], axis=2).astype(np.float32)
-	x_test = np.concatenate([test_static_seq, test_temp_scaled], axis=2).astype(np.float32)
+	x_train = torch.cat([train_static_seq, train_temp_scaled], dim=2).to(torch.float32)
+	x_val = torch.cat([val_static_seq, val_temp_scaled], dim=2).to(torch.float32)
+	x_test = torch.cat([test_static_seq, test_temp_scaled], dim=2).to(torch.float32)
 
 	params = {
 		"static_z_score": static_params,
@@ -401,6 +474,15 @@ def make_result_better(s, n, train_idx, val_idx, test_idx, seed=RANDOM_SEED):
 	return augmented_train_idx, val_idx, test_idx
 
 
+def build_model(input_dim, model_config=None):
+	"""构建模型并返回配置。"""
+	config = dict(DEFAULT_MODEL_CONFIG)
+	if model_config:
+		config.update(model_config)
+	config["input_dim"] = input_dim
+	return Transformer_Decoder(**config), config
+
+
 def run_holdout_training(
 	df,
 	train_idx,
@@ -428,7 +510,8 @@ def run_holdout_training(
 	val_loader = DataLoader(val_dataset, batch_size=64, shuffle=False)
 	test_loader = DataLoader(test_dataset, batch_size=64, shuffle=False)
 
-	model = Transformer_Decoder(input_dim=x_train.shape[-1]).to(device)
+	model, model_config = build_model(input_dim=x_train.shape[-1])
+	model = model.to(device)
 	criterion = LpLoss(p=3)
 	optimizer = torch.optim.Adam(model.parameters(), lr=LR)
 	scheduler = None
@@ -530,6 +613,7 @@ def run_holdout_training(
 		"norm_params": norm_params,
 		"test_loader": test_loader,
 		"model": model,
+		"model_config": model_config,
 		"val_losses": val_losses,
 		"val_mae": val_mae,
 		"val_rmse": val_rmse,
@@ -546,8 +630,10 @@ class ProcessDataset(Dataset):
 	"""时序回归任务的数据集封装。"""
 
 	def __init__(self, x, y):
-		self.x = torch.tensor(x, dtype=torch.float32)
-		self.y = torch.tensor(y, dtype=torch.float32).unsqueeze(1)
+		self.x = torch.as_tensor(x, dtype=torch.float32)
+		self.y = torch.as_tensor(y, dtype=torch.float32)
+		if self.y.ndim == 1:
+			self.y = self.y.unsqueeze(1)
 
 	def __len__(self):
 		return self.x.shape[0]
@@ -575,39 +661,46 @@ class PositionalEncoding(nn.Module):
 
 
 class Transformer_Decoder(nn.Module):
-    def __init__(self, input_dim, d_model=64, n_queries=2, nhead=2, num_layers=2):
-        super().__init__()
-        self.n_queries = n_queries  # 设置专家（Query）的数量
-        
-        # 1. 初始化：改为 (1, n_queries, d_model)
-        self.query_token = nn.Parameter(torch.zeros(1, n_queries, d_model))
-        nn.init.xavier_uniform_(self.query_token)
-        
-        # 其他层保持不变...
-        self.input_proj = nn.Linear(input_dim, d_model)
-        self.decoder = nn.TransformerDecoder(nn.TransformerDecoderLayer(d_model=d_model, nhead=nhead, batch_first=True),num_layers=num_layers)
-        self.reg_head = nn.Sequential(nn.Linear(d_model, 1))
+	def __init__(self, input_dim, d_model=64, n_queries=2, nhead=2, num_layers=2):
+		super().__init__()
+		self.input_dim = input_dim
+		self.d_model = d_model
+		self.n_queries = n_queries  # 设置专家（Query）的数量
+		self.nhead = nhead
+		self.num_layers = num_layers
 
-    def forward(self, x):
-        # 处理输入 memory
-        memory = self.input_proj(x)
-        
-        # 2. 扩展 Query Token 到 Batch 大小
-        # batch_size x n_queries x d_model
-        batch_size = memory.size(0)
-        tgt = self.query_token.expand(batch_size, -1, -1)
-        
-        # 3. 经过 Decoder 交互
-        # 每个 query 都会与 memory 进行 Cross-Attention
-        # 输出形状: (batch_size, n_queries, d_model)
-        hidden = self.decoder(tgt=tgt, memory=memory)
-        
-        # 4. 关键步骤：在序列维度（n_queries 维度）取平均
-        # 从 (B, N, D) 变为 (B, D)
-        hidden_mean = hidden.mean(dim=1) 
-        
-        # 5. 最后送入回归头
-        return self.reg_head(hidden_mean)
+		# 1. 初始化：改为 (1, n_queries, d_model)
+		self.query_token = nn.Parameter(torch.zeros(1, n_queries, d_model))
+		nn.init.xavier_uniform_(self.query_token)
+
+		# 其他层保持不变...
+		self.input_proj = nn.Linear(input_dim, d_model)
+		self.decoder = nn.TransformerDecoder(
+			nn.TransformerDecoderLayer(d_model=d_model, nhead=nhead, batch_first=True),
+			num_layers=num_layers,
+		)
+		self.reg_head = nn.Sequential(nn.Linear(d_model, 1))
+
+	def forward(self, x):
+		# 处理输入 memory
+		memory = self.input_proj(x)
+
+		# 2. 扩展 Query Token 到 Batch 大小
+		# batch_size x n_queries x d_model
+		batch_size = memory.size(0)
+		tgt = self.query_token.expand(batch_size, -1, -1)
+
+		# 3. 经过 Decoder 交互
+		# 每个 query 都会与 memory 进行 Cross-Attention
+		# 输出形状: (batch_size, n_queries, d_model)
+		hidden = self.decoder(tgt=tgt, memory=memory)
+
+		# 4. 关键步骤：在序列维度（n_queries 维度）取平均
+		# 从 (B, N, D) 变为 (B, D)
+		hidden_mean = hidden.mean(dim=1)
+
+		# 5. 最后送入回归头
+		return self.reg_head(hidden_mean)
 
 
 class LpLoss(nn.Module):
@@ -659,25 +752,28 @@ def evaluate(model, dataloader, target_params=None, device="cpu"):
 
 	with torch.no_grad():
 		for batch_x, batch_y in dataloader:
-			pred = model(batch_x.to(device)).cpu().numpy().ravel()
-			true = batch_y.numpy().ravel()
+			pred = model(batch_x.to(device)).detach().cpu().view(-1)
+			true = batch_y.detach().cpu().view(-1)
 			preds.append(pred)
 			trues.append(true)
 
-	y_pred = np.concatenate(preds)
-	y_true = np.concatenate(trues)
+	if not preds:
+		return 0.0, 0.0, 0.0, 0.0
+
+	y_pred = torch.cat(preds)
+	y_true = torch.cat(trues)
 
 	if target_params is not None:
 		y_pred = z_score_inverse_transform(y_pred, target_params)
 		y_true = z_score_inverse_transform(y_true, target_params)
 
-	abs_errors = np.abs(y_pred - y_true)
-	mae = np.mean(abs_errors)
-	rmse = np.sqrt(np.mean((y_pred - y_true) ** 2))
-	max_error = np.max(abs_errors)
-	ss_res = np.sum((y_true - y_pred) ** 2)
-	ss_tot = np.sum((y_true - np.mean(y_true)) ** 2)
-	r2 = 0.0 if ss_tot == 0 else 1 - ss_res / ss_tot
+	abs_errors = torch.abs(y_pred - y_true)
+	mae = abs_errors.mean().item()
+	rmse = torch.sqrt(torch.mean((y_pred - y_true) ** 2)).item()
+	max_error = abs_errors.max().item()
+	ss_res = torch.sum((y_true - y_pred) ** 2)
+	ss_tot = torch.sum((y_true - torch.mean(y_true)) ** 2)
+	r2 = 0.0 if ss_tot == 0 else (1 - ss_res / ss_tot).item()
 	return mae, rmse, max_error, r2
 
 
@@ -745,6 +841,7 @@ def main():
 	best_norm_params = holdout_result["norm_params"]
 	test_loader = holdout_result["test_loader"]
 	best_fold_model = holdout_result["model"]
+	model_config = holdout_result["model_config"]
 	val_losses = holdout_result["val_losses"]
 
 	if best_overall_state is None:
@@ -759,8 +856,14 @@ def main():
 		target_params=best_norm_params["target_z_score"],
 		device=device,
 	)
-	best_model_path = param_dir / format_metric_filename("best", best_mae, best_rmse, best_max_error)
-	save_model_state(best_overall_state, best_model_path)
+	best_model_path = param_dir / BEST_MODEL_FILENAME
+	save_checkpoint(
+		best_fold_model,
+		best_norm_params,
+		best_model_path,
+		model_config,
+		meta={"seq_len": SEQ_LEN, "element_cols": ELEMENT_COLS},
+	)
 
 	best_fold_model.load_state_dict(best_overall_last_state)
 	last_mae, last_rmse, last_max_error, last_r2 = evaluate(
@@ -769,17 +872,20 @@ def main():
 		target_params=best_norm_params["target_z_score"],
 		device=device,
 	)
-	last_model_path = param_dir / format_metric_filename("last", last_mae, last_rmse, last_max_error)
-	save_model_state(best_overall_last_state, last_model_path)
+	last_model_path = param_dir / LAST_MODEL_FILENAME
+	save_checkpoint(
+		best_fold_model,
+		best_norm_params,
+		last_model_path,
+		model_config,
+		meta={"seq_len": SEQ_LEN, "element_cols": ELEMENT_COLS},
+	)
 
-	# Step 8: 保存归一化参数并打印训练摘要。
-	norm_params_path = param_dir / NORM_PARAMS_FILENAME
-	save_norm_params(best_norm_params, norm_params_path)
+	# Step 8: 打印训练摘要。
 	print(f"验证集损失: {[round(v, 4) for v in val_losses]}")
 	print(f"已保存参数目录: {param_dir}")
 	print(f"已保存最佳模型参数: {best_model_path}")
 	print(f"已保存最后一轮参数: {last_model_path}")
-	print(f"已保存归一化参数: {norm_params_path}")
 
 	# Step 9: 输出最佳模型与最后一轮模型在测试集上的指标。
 	best_fold_model.load_state_dict(best_overall_state)

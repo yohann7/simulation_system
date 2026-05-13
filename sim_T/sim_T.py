@@ -1035,8 +1035,8 @@ class simulation_model:
         roll.post_temp_0 = T_field_0 - 273.15
         roll.post_temp_1 = T_field_1 - 273.15
         
-        # 更新全局时间
-        each_roll_time += roll.t
+        # 更新全局时间（按实际仿真步数累加，保证时间戳为 dt 的整数倍）
+        each_roll_time += roll.step * simulation_model.dt
 
 
     def plot_T_results():

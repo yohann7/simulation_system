@@ -1,7 +1,6 @@
 import pandas as pd
 from pathlib import Path
 import sys
-import numpy as np
 import torch
 from functools import lru_cache
 import data_driven_model as ddm
@@ -60,59 +59,6 @@ def merge_process_and_temp(process_data, resampled_non_overlap, resampled_overla
     return pd.concat([process_keep, temp_df], axis=1)
 
 
-def _get_norm_array(npz_data, candidate_keys):
-    for key in candidate_keys:
-        if key in npz_data:
-            return np.asarray(npz_data[key], dtype=np.float32)
-    for key in npz_data.files:
-        low_key = key.lower()
-        if any(token in low_key for token in candidate_keys):
-            return np.asarray(npz_data[key], dtype=np.float32)
-    raise KeyError(f"norm_params 缺少键: {candidate_keys}")
-
-
-def _build_model_for_state(state_dict, input_dim):
-    import inspect
-
-    # 优先尝试最常见模型名，再尝试 ddm 中全部 nn.Module 子类。
-    preferred_names = ["MultiScaleConvRegressor", "Regressor", "Model", "Net"]
-    module_classes = []
-    for _, cls in inspect.getmembers(ddm, inspect.isclass):
-        if cls.__module__ != ddm.__name__:
-            continue
-        if not issubclass(cls, torch.nn.Module):
-            continue
-        if cls.__name__ in {"LpLoss", "PositionalEncoding"}:
-            continue
-        module_classes.append(cls)
-
-    def _priority(cls):
-        for i, token in enumerate(preferred_names):
-            if token.lower() in cls.__name__.lower():
-                return i
-        return len(preferred_names)
-
-    module_classes = sorted(module_classes, key=_priority)
-
-    last_error = None
-    for cls in module_classes:
-        for kwargs in ({"input_dim": input_dim}, {}):
-            try:
-                model_obj = cls(**kwargs)
-            except Exception:
-                continue
-            try:
-                model_obj.load_state_dict(state_dict, strict=True)
-                return model_obj
-            except Exception as exc:
-                last_error = exc
-                continue
-
-    raise RuntimeError(
-        f"无法在 data_driven_model 中找到可匹配当前权重的模型类。最后错误: {last_error}"
-    )
-
-
 def _resolve_device(device):
     if device in (None, "auto"):
         return torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -123,52 +69,39 @@ def _resolve_device(device):
 
 @lru_cache(maxsize=1)
 def _load_predict_assets():
-    model_dir = Path(__file__).resolve().parent/ "param" / "predict"
-    model_candidates = sorted(model_dir.glob("best*.pth"))
-    if not model_candidates:
-        model_candidates = sorted(model_dir.glob("fine_tuned_head_only*.pth"))
-    if not model_candidates:
-        raise FileNotFoundError(
-            f"未找到模型参数文件: {model_dir}"
-            " (匹配 best*.pth 或 fine_tuned_head_only*.pth)"
-        )
-    model_path = model_candidates[-1]
+    model_dir = Path(__file__).resolve().parent / "param" / "predict"
+    model_path = model_dir / "best.pt"
+    if not model_path.exists():
+        raise FileNotFoundError(f"未找到模型文件: {model_path}")
 
-    norm_path = model_dir / "norm_params.npz"
-    if not norm_path.exists():
-        raise FileNotFoundError(f"未找到归一化参数文件: {norm_path}")
+    try:
+        with torch.serialization.safe_globals([torch.torch_version.TorchVersion]):
+            checkpoint = torch.load(model_path, map_location="cpu", weights_only=True)
+    except Exception:
+        checkpoint = torch.load(model_path, map_location="cpu", weights_only=False)
+    if not isinstance(checkpoint, dict) or "model_state" not in checkpoint:
+        raise TypeError("模型文件格式不正确，需要包含 model_state。")
+    model_config = checkpoint.get("model_config")
+    if not model_config:
+        raise KeyError("模型文件缺少 model_config。")
+    norm_params = ddm.unpack_norm_params(checkpoint.get("norm"))
 
-    norm_npz = np.load(norm_path)
-    static_params = {
-        "mean": _get_norm_array(norm_npz, ["static_mean"]),
-        "std": _get_norm_array(norm_npz, ["static_std"]),
-    }
-    temp_params = {
-        "mean": _get_norm_array(norm_npz, ["temp_mean"]),
-        "std": _get_norm_array(norm_npz, ["temp_std"]),
-    }
-    target_params = {
-        "mean": _get_norm_array(norm_npz, ["target_mean"]),
-        "std": _get_norm_array(norm_npz, ["target_std"]),
-    }
-
-    raw_state = torch.load(model_path, map_location="cpu")
-    state = raw_state.get("state_dict") if isinstance(raw_state, dict) and "state_dict" in raw_state else raw_state
-    if not isinstance(state, dict):
-        raise TypeError("模型参数文件格式不支持，需为 state_dict 或包含 state_dict 的字典。")
-
-    return state, static_params, temp_params, target_params
+    return checkpoint["model_state"], model_config, norm_params
 
 
 @lru_cache(maxsize=8)
 def _get_model_runtime(input_dim, seq_len, device_str):
-    state, static_params, temp_params, target_params = _load_predict_assets()
+    model_state, model_config, norm_params = _load_predict_assets()
+    expected_dim = model_config.get("input_dim")
+    if expected_dim is not None and expected_dim != input_dim:
+        raise ValueError(f"模型输入维度不匹配: checkpoint={expected_dim}, 当前={input_dim}")
     ddm.SEQ_LEN = seq_len
-    model = _build_model_for_state(state, input_dim=input_dim)
+    model = ddm.Transformer_Decoder(**model_config)
+    model.load_state_dict(model_state, strict=True)
     device = torch.device(device_str)
     model = model.to(device)
     model.eval()
-    return model, static_params, temp_params, target_params, device
+    return model, norm_params, device
 
 
 def predict_temperatures(process_data):
@@ -250,33 +183,36 @@ def predict_Ts(process_data, device="auto"):
         raise ValueError(f"process_data 缺少必要元素列: {missing_cols}")
 
     temp_t0_cols, temp_t1_cols = ddm.infer_temp_columns(process_data)
-    static_x = process_data[element_cols].to_numpy(dtype=np.float32)
-    t0_x = process_data[temp_t0_cols].to_numpy(dtype=np.float32)
-    t1_x = process_data[temp_t1_cols].to_numpy(dtype=np.float32)
+    static_x = torch.as_tensor(process_data[element_cols].to_numpy(dtype="float32"))
+    t0_x = torch.as_tensor(process_data[temp_t0_cols].to_numpy(dtype="float32"))
+    t1_x = torch.as_tensor(process_data[temp_t1_cols].to_numpy(dtype="float32"))
 
     seq_len = len(temp_t0_cols)
     ddm.SEQ_LEN = seq_len
 
-    _, static_params, temp_params, _ = _load_predict_assets()
+    _, _, norm_params = _load_predict_assets()
+    static_params = norm_params["static_z_score"]
+    temp_params = norm_params["temp_z_score"]
+    target_params = norm_params["target_z_score"]
 
     static_scaled = ddm.z_score_transform(static_x, static_params)
-    temp_x = np.stack([t0_x, t1_x], axis=2).astype(np.float32)
+    temp_x = torch.stack([t0_x, t1_x], dim=2)
     temp_scaled = ddm.z_score_transform(temp_x.reshape(-1, 2), temp_params).reshape(temp_x.shape)
-    static_seq = np.repeat(static_scaled[:, None, :], seq_len, axis=1)
-    x = np.concatenate([static_seq, temp_scaled], axis=2).astype(np.float32)
+    static_seq = static_scaled.unsqueeze(1).repeat(1, seq_len, 1)
+    x = torch.cat([static_seq, temp_scaled], dim=2).to(torch.float32)
 
     resolved_device = _resolve_device(device)
-    model, _, _, target_params, runtime_device = _get_model_runtime(
+    model, norm_params, runtime_device = _get_model_runtime(
         input_dim=x.shape[-1],
         seq_len=seq_len,
         device_str=str(resolved_device),
     )
 
     with torch.inference_mode():
-        x_tensor = torch.tensor(x, dtype=torch.float32, device=runtime_device)
-        pred_scaled = model(x_tensor).detach().cpu().numpy().reshape(-1)
+        x_tensor = x.to(runtime_device)
+        pred_scaled = model(x_tensor).detach().cpu().view(-1)
     pred = ddm.z_score_inverse_transform(pred_scaled, target_params)
-    Ts = float(pred[0]) if pred.shape[0] == 1 else pred
+    Ts = float(pred[0]) if pred.numel() == 1 else pred.cpu().numpy()
     return Ts
 
 def plot_T_results():

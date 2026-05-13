@@ -14,7 +14,7 @@ import sim_T as sim
 
 
 # 仿真时间步长默认值（可在 run_all_simulations/run_single_simulation 中覆盖）
-DEFAULT_DT = 1
+DEFAULT_DT = 0.01
 dt = DEFAULT_DT
 
 TEMP_START_COL = 0
@@ -82,6 +82,27 @@ def slice_temp_columns(all_sim_t_df, start_col=TEMP_START_COL, end_col=TEMP_END_
 # 	non_overlap_dim = resampled_non_overlap.shape[1]
 # 	overlap_dim = resampled_overlap.shape[1]
 # 	return resampled_non_overlap, resampled_overlap, non_overlap_dim, overlap_dim
+
+
+def _find_min_valid_temp_count(all_sim_t_df):
+    """找出所有行中最短的有效温度序列长度。
+
+    不同工艺数据的总仿真时间不同，导致温度列数不一致。
+    返回所有行中非搭接点温度有效值个数的最小值，作为统一截取长度。
+    """
+    non_overlap_cols = _sort_temp_columns(
+        [c for c in all_sim_t_df.columns if c.endswith("(0)")]
+    )
+    if not non_overlap_cols:
+        return 0
+
+    min_count = None
+    for _, row in all_sim_t_df[non_overlap_cols].iterrows():
+        valid_count = int(row.notna().sum())
+        if min_count is None or valid_count < min_count:
+            min_count = valid_count
+
+    return min_count or 0
 
 
 def merge_process_and_temp(
@@ -231,13 +252,19 @@ def _apply_process_row_to_sim(row, rolls):
 	}
 	for col, idx in sc_map.items():
 		val = _safe_float(row.get(col))
-		if val is not None:
+		if val is not None and val > 0:
+			old_v = rolls[idx].roll_v
 			rolls[idx].roll_v = val
+			rolls[idx].t = rolls[idx].t * (old_v / val)
+			rolls[idx].step = int(rolls[idx].t / sim.simulation_model.dt)
 
 	# 新数据无独立入口速度列，使用 SPEED1 作为入口段速度。
 	entry_speed = _safe_float(row.get("SPEED1"))
-	if entry_speed is not None:
+	if entry_speed is not None and entry_speed > 0:
+		old_v = rolls[0].roll_v
 		rolls[0].roll_v = entry_speed
+		rolls[0].t = rolls[0].t * (old_v / entry_speed)
+		rolls[0].step = int(rolls[0].t / sim.simulation_model.dt)
 
 	# data_loader 映射：风机开度（FAN1~FAN6）
 	puf_map = {
@@ -254,11 +281,27 @@ def _apply_process_row_to_sim(row, rolls):
 		val = _normalize_percent(val)
 		if val is not None:
 			rolls[idx].fan_status = val
+			rolls[idx].fan_speed = rolls[idx].fan_air_volume * val / rolls[idx].fan_area
 
 
 def _format_time_col(t, suffix):
 	"""将时间戳格式化为温度列名。"""
 	return f"{float(t):.2f}{suffix}"
+
+
+def _resample_to_integer_seconds(history_time, history_t0, history_t1):
+	"""将仿真结果重采样到整数秒（0, 1, 2, ...）。"""
+	time_arr = np.asarray(history_time, dtype=float)
+	t0_arr = np.asarray(history_t0, dtype=float)
+	t1_arr = np.asarray(history_t1, dtype=float)
+
+	max_t = int(np.floor(time_arr[-1]))
+	int_times = np.arange(0, max_t + 1, dtype=float)
+
+	t0_int = np.interp(int_times, time_arr, t0_arr)
+	t1_int = np.interp(int_times, time_arr, t1_arr)
+
+	return list(int_times), list(t0_int), list(t1_int)
 
 
 def run_single_simulation(row, tem1=850, tem0=830, dt_override=None, param_dict=None):
@@ -288,7 +331,11 @@ def run_single_simulation(row, tem1=850, tem0=830, dt_override=None, param_dict=
 	history_t0_raw = list(sim.simulation_model.history_T_0[-1])
 	history_t1_raw = list(sim.simulation_model.history_T_1[-1])
 	min_len = min(len(history_time_raw), len(history_t0_raw), len(history_t1_raw))
-	return history_time_raw[:min_len], history_t0_raw[:min_len], history_t1_raw[:min_len]
+	history_time = history_time_raw[:min_len]
+	history_t0 = history_t0_raw[:min_len]
+	history_t1 = history_t1_raw[:min_len]
+
+	return _resample_to_integer_seconds(history_time, history_t0, history_t1)
 
 
 def _worker_simulate(item):
@@ -412,10 +459,12 @@ if __name__ == "__main__":
 	all_sim_t = run_all_simulations(process_data)
 	all_sim_t.to_csv(all_sim_t_path, index=False, encoding="utf-8-sig")
 
+	min_temp_count = _find_min_valid_temp_count(all_sim_t)
+	print(f"最短温度序列长度: {min_temp_count}")
 	non_overlap_df, overlap_df = slice_temp_columns(
 		all_sim_t,
 		start_col=TEMP_START_COL,
-		end_col=TEMP_END_COL,
+		end_col=min_temp_count - 1 if min_temp_count > 0 else 0,
 	)
 	non_overlap_dim = non_overlap_df.shape[1]
 	overlap_dim = overlap_df.shape[1]
