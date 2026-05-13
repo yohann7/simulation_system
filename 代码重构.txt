@@ -1,0 +1,137 @@
+简介：
+本项目是82A卷帘钢的数字化仿真系统。本系统功能为：实现线材轧后冷却全流程的温度仿真、组织成分仿真、力学性能Ts预测。本项目主要分为：sim_T：温度和组织相变仿真。data_augmentation：数据增强。data_driven：数据驱动的力学性能预测。optimization_algorithm：基于仿真系统的工艺参数优化。
+
+一、sim_T
+claude文件夹是一些专业的公式信息，内容与代码重构关系不大。
+output_data是该部分的输出文件位置，内容与代码重构关系不大。
+sim_T.py是机理仿真的核心内容，其中包含单次仿真的所有算法、模型、画图方法等
+change_parameter_82A.py是通过规定的一些参数，对sim_T.py中的一些公式中的参数进行优化，使温度仿真更加准确。
+parameter.txt是change_parameter_82A.py运行后输出的优化后的参数。可供sim_T.py等其他温度仿真文件调用，内容与代码重构关系不大。
+calculate_the_effect.py是用于表征change_parameter_82A.py中的优化算法的作用，其中有一些表征的方法。
+calculate_all_sim_T.py是机理仿真的另一核心内容，主要作用是将输入文件的所有工艺参数通过调用sim_T.py的仿真方法并行计算。
+
+二、data_augmentation
+output_data是该部分的输出文件位置，内容与代码重构关系不大。
+make_data_big.py是数据增强的核心内容，作用是通过数据增强方法在某一范围内让较少的数据得到增多。
+
+三、data_driven
+param文件夹用于储存Ts预测模型的模型参数，内容与代码重构关系不大。
+runs文件用于储存每次训练的过程数据，用于tensorboard可视化，内容与代码重构关系不大。
+data_driven_model.py是该部分的核心内容，包含读取数据、构建模型、导入模型、保存参数、训练模型等核心方法
+fine_tuning.py原本用于实现训练后用少量真实数据微调的作用，目前没有启用。
+predict.py是该部分的核心内容，用于加载模型参数，调用sim_T文件夹的温度仿真内容，实现工艺参数到温度仿真、力学性能预测的全流程预测。
+wrong_data_delet.py是通过训练好的模型对全部真实数据做预测，将离群数据剔除的作用，目前没有启用。
+
+四、optimization_algorithm
+该部分还没构建好，不作为代码重构的内容。
+
+
+重构要求：
+1.重构的范围只在simulation_system文件夹下，也就是本项目的范围。
+2.代码重构时调用andrej-karpathy-skills的skill
+3.合理地使用函数重构功能性代码。
+4.对于实现某特定功能的函数，若别的代码文件也需要实现该功能，则采用函数调用的方法（注释调用的文件和函数），不必再重新构建。（能调用就调用，以后若功能需要修改，只需修改一处，方便后续维护。）
+5.对于sim_T部分，将实现单次温度仿真和组织成份仿真的所有功能函数、以及绘图等所有核心功能函数都放入sim_T.py文件中，在if __name__ == "__main__":里边通过调用功能函数实现目前的单步仿真和绘图。calculate_all_sim_T.py中的并行大批次仿真功能也通过编写函数，调用sim_T.py的功能实现。其他的代码文件同理。
+6.对于data_driven部分，将所有核心功能函数都放入data_driven_model.py文件，再if __name__ == "__main__":里边通过调用功能函数实现模型的选择、模型的训练、tensorboard可视化的调用。对于data_driven部分中基于pytorch架构的机器学习功能（如模型结构搭建、模型选择、模型加载、模型保存、模型训练、模型预测等），使用主流的、官方推荐的、简洁的方式实现。predict.py文件的功能也通过调用需要的py文件中的函数实现。
+7.重构的代码应有适当的注释，能够直观明白代码的作用。
+
+
+
+═══════════════════════════════════════════════════════════════
+重构完成记录（2026-05-13）
+═══════════════════════════════════════════════════════════════
+
+一、sim_T/sim_T.py —— 核心重构
+--------------------------------
+1. 新增 SimulationState 类：封装单次仿真的全部可变状态（温度历史、相变标记、
+   孕育期累计等），替代原来散落在 simulation_model 类变量中的全局状态。
+   每个实例代表一次独立仿真，消除全局变量污染。
+
+2. simulation_model 静态方法转为模块级函数：
+   - calculate_physical_parameters(T_current)          — 物理参数（导热系数、比热容）
+   - calculate_optiflex_parameters(optiflex_angle)     — 佳灵装置参数
+   - calculate_heat_transfer(...)                      — 换热系数（对流+辐射）
+   - get_incubation_time_pearlite / _ferrite(...)      — 珠光体/铁素体孕育期
+   - calculate_phase_change_heat(state, ...)           — 相变热焓（JMAK动力学）
+   - calculate_total_phase_heat(state, ...)            — 双侧相变热焓
+   - cooling_calculation(state, roll, time_offset)     — 单段辊道冷却
+   所有函数接受 SimulationState 参数，不再依赖全局/类变量。
+
+3. 新增高层仿真接口：
+   - run_full_simulation(rolls, tem1, tem0, params, dt) → 返回 (state, roll_start_time)
+   - run_simulation_with_params(params, dt) → 便捷接口，供优化/评估调用
+
+4. 新增公共函数（供其他模块调用，消除跨文件重复）：
+   - calculate_importance_for_real_point(X, Y, ...)    — 权重计算算法
+   - get_measure_point_times(roll_start_time)          — 测温点时间序列
+   - MEASURE_POINT_T_REAL_1 / MEASURE_POINT_T_REAL_0   — 现场实测温度常量
+
+5. simulation_model 类保留为向后兼容层，代理到新函数。
+
+6. data_loader.load_roll_data() 用循环配置替代逐段硬编码，减少代码量。
+
+7. __main__ 通过调用 run_full_simulation() → 各 plot_*() 函数实现单步仿真与绘图。
+
+二、sim_T/calculate_all_sim_T.py —— 消除重复
+---------------------------------------------
+1. 删除重复的 _reset_simulation_state 逻辑（SimulationState 内部处理）。
+2. run_single_simulation 调用 sim.run_full_simulation()，不再手动迭代仿真。
+3. run_single_simulation 返回值扩展：额外返回 state 和 roll_start_time，
+   供 predict.py 绘图使用。
+4. 保留批量/并行调度、CSV 输出、数据校验等本模块特有功能。
+
+三、sim_T/change_parameter_82A.py —— 消除重复
+---------------------------------------------
+1. calculate_importance_for_real_point → 从 sim_T 导入（约50行重复代码移除）。
+2. run_simulation_with_params → 调用 sim.run_simulation_with_params()。
+3. _get_measure_point_times → 委托 sim.get_measure_point_times()。
+4. 现场测温数据 → 引用 sim.MEASURE_POINT_T_REAL_1/0。
+5. 保留 PSO 优化特有逻辑（粒子群初始化、速度更新、批量评估）。
+
+四、sim_T/calculate_the_effect.py —— 消除重复
+---------------------------------------------
+1. reset_simulation_state → 移除（SimulationState 内部管理）。
+2. run_simulation_with_params → 调用 sim.run_simulation_with_params()。
+3. 现场测温数据 → 引用 sim.MEASURE_POINT_T_REAL_1/0。
+4. 保留 Parity Plot 评估特有逻辑。
+
+五、data_augmentation/make_data_big.py —— 未修改
+-------------------------------------------------
+结构已合理，无需重构。
+
+六、data_driven/data_driven_model.py —— 规范化
+-----------------------------------------------
+1. TEMP_T0_COLS / TEMP_T1_COLS / SEQ_LEN 改为文档化的模块级变量，
+   添加 get_seq_len() / set_seq_len() 访问器。
+2. PositionalEncoding 的 max_len 改为可配置参数（默认128）。
+3. run_one_epoch() 评估模式改用 torch.no_grad() 替代 torch.set_grad_enabled(False)，
+   更符合 PyTorch 官方推荐写法。
+4. 所有核心功能（模型定义、训练、评估、保存/加载、数据预处理）集中在本文件。
+5. __main__ 通过调用 main() → run_holdout_training() 实现模型训练与评估。
+
+七、data_driven/predict.py —— 消除重复
+---------------------------------------
+1. slice_temp_columns / merge_process_and_temp → 从 calculate_all_sim_T 导入。
+2. plot_T_results → 直接调用 sim_T.plot_T_results(state, roll_start_time)，
+   由50行自定义绘图缩减为5行委托调用，并画出完整的4条温度曲线+分段背景。
+3. predict_temperatures 内部保存 state 和 roll_start_time 供绘图使用。
+4. 保留 TS 预测全流程（温度仿真→数据拼接→模型推理）特有逻辑。
+
+八、data_driven/fine_tuning.py —— 未修改（动态加载兼容新版 API）
+
+九、data_driven/wrong_data_delet.py —— 未修改（动态加载兼容新版 API）
+
+十、修复的重构 Bug
+-------------------
+1. cooling_calculation 历史时间戳断裂：原重构版用局部时间 dt*(j+1) 记录历史，
+   导致每段辊道时间轴从0重置。修复为 time_offset + dt*(j+1) 保证跨段连续。
+2. predict.py plot_T_results 无法获取 roll_start_time：
+   原重构版 calc.run_single_simulation 丢弃了 state 和 roll_start_time。
+   修复为扩展返回值，predict.py 存储后委托 sim_T.plot_T_results。
+
+重构效果统计
+------------
+- 消除跨文件重复函数：约 200 行
+- 消除跨文件重复常量：3 处测温数据
+- sim_T 全局/类变量污染：→ 0（全部封装入 SimulationState）
+- predict.py 独立绘图逻辑：→ 委托 sim_T

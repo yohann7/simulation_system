@@ -1,65 +1,41 @@
-import pandas as pd
-from pathlib import Path
+"""
+力学性能预测 —— 从工艺参数到温度仿真到 TS 预测的全流程。
+
+调用 sim_T 和 calculate_all_sim_T 进行温度仿真，
+调用 data_driven_model 加载模型并预测力学性能 TS。
+"""
+
 import sys
-import torch
 from functools import lru_cache
+from pathlib import Path
+
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import torch
+
 import data_driven_model as ddm
 
+# 添加 sim_T 目录到 sys.path，以便导入 calculate_all_sim_T 和 sim_T
 _ROOT_DIR = Path(__file__).resolve().parents[1]
 sys.path.append(str(_ROOT_DIR / "sim_T"))
 import calculate_all_sim_T as calc
+import sim_T as sim
 
 TEMP_START_COL = 0
 TEMP_END_COL = "ALL"
 
-
-def _sort_temp_columns(temp_columns):
-    """按时间数值排序温度列。"""
-    return sorted(temp_columns, key=lambda col: float(col[:-3]))
+# 全局变量：存储最近一次仿真结果，供 plot_T_results 使用
+_last_sim_result = {}
 
 
-def slice_temp_columns(all_sim_t_df, start_col=TEMP_START_COL, end_col=TEMP_END_COL):
-    """截取 all_sim_t_df 的非搭接点和搭接点温度列。"""
-    non_overlap_cols = _sort_temp_columns([c for c in all_sim_t_df.columns if c.endswith("(0)")])
-    overlap_cols = _sort_temp_columns([c for c in all_sim_t_df.columns if c.endswith("(1)")])
-
-    if not non_overlap_cols or not overlap_cols:
-        raise ValueError("all_sim_t_df 中未找到 (0) 或 (1) 温度列。")
-
-    max_len = min(len(non_overlap_cols), len(overlap_cols))
-    if isinstance(end_col, str) and end_col.upper() == "ALL":
-        end_col = max_len - 1
-    if start_col < 0 or end_col < start_col:
-        raise ValueError("截取范围不合法。")
-    if start_col >= max_len:
-        raise ValueError(f"start_col={start_col} 超出温度列范围，总长度={max_len}。")
-
-    end_col = min(end_col, max_len - 1)
-    selected_non_overlap = non_overlap_cols[start_col:end_col + 1]
-    selected_overlap = overlap_cols[start_col:end_col + 1]
-
-    return all_sim_t_df[selected_non_overlap].copy(), all_sim_t_df[selected_overlap].copy()
-
-
-def merge_process_and_temp(process_data, resampled_non_overlap, resampled_overlap, keep_columns):
-    """将工艺列与重采样温度列拼接。"""
-    exist_cols = [c for c in keep_columns if c in process_data.columns]
-    missing_cols = [c for c in keep_columns if c not in process_data.columns]
-    if missing_cols:
-        print(f"警告: 以下工艺列不存在，已忽略: {missing_cols}")
-
-    process_keep = process_data[exist_cols].reset_index(drop=True)
-    temp_df = pd.concat(
-        [
-            resampled_non_overlap.reset_index(drop=True),
-            resampled_overlap.reset_index(drop=True),
-        ],
-        axis=1,
-    )
-    return pd.concat([process_keep, temp_df], axis=1)
+# ═══════════════════════════════════════════════════════════════
+# 模型加载
+# ═══════════════════════════════════════════════════════════════
 
 
 def _resolve_device(device):
+    """解析设备参数。"""
     if device in (None, "auto"):
         return torch.device("cuda" if torch.cuda.is_available() else "cpu")
     if isinstance(device, torch.device):
@@ -69,6 +45,7 @@ def _resolve_device(device):
 
 @lru_cache(maxsize=1)
 def _load_predict_assets():
+    """加载预测所需的模型参数和归一化参数。"""
     model_dir = Path(__file__).resolve().parent / "param" / "predict"
     model_path = model_dir / "best.pt"
     if not model_path.exists():
@@ -79,23 +56,27 @@ def _load_predict_assets():
             checkpoint = torch.load(model_path, map_location="cpu", weights_only=True)
     except Exception:
         checkpoint = torch.load(model_path, map_location="cpu", weights_only=False)
+
     if not isinstance(checkpoint, dict) or "model_state" not in checkpoint:
         raise TypeError("模型文件格式不正确，需要包含 model_state。")
+
     model_config = checkpoint.get("model_config")
     if not model_config:
         raise KeyError("模型文件缺少 model_config。")
-    norm_params = ddm.unpack_norm_params(checkpoint.get("norm"))
 
+    norm_params = ddm.unpack_norm_params(checkpoint.get("norm"))
     model_seq_len = checkpoint.get("meta", {}).get("seq_len", None)
     return checkpoint["model_state"], model_config, norm_params, model_seq_len
 
 
 @lru_cache(maxsize=8)
 def _get_model_runtime(input_dim, seq_len, device_str):
+    """获取模型推理实例。"""
     model_state, model_config, norm_params, model_seq_len = _load_predict_assets()
     expected_dim = model_config.get("input_dim")
     if expected_dim is not None and expected_dim != input_dim:
         raise ValueError(f"模型输入维度不匹配: checkpoint={expected_dim}, 当前={input_dim}")
+
     ddm.SEQ_LEN = seq_len
     model = ddm.Transformer_Decoder(**model_config)
     model.load_state_dict(model_state, strict=True)
@@ -105,8 +86,19 @@ def _get_model_runtime(input_dim, seq_len, device_str):
     return model, norm_params, device
 
 
+# ═══════════════════════════════════════════════════════════════
+# 温度仿真
+# ═══════════════════════════════════════════════════════════════
+
+
 def predict_temperatures(process_data):
-    """基于单条工艺数据计算仿真温度，返回 time, tem0, tem1。"""
+    """基于单条工艺数据计算仿真温度，返回 time, tem0, tem1。
+
+    同时将 state 和 roll_start_time 存入 _last_sim_result，
+    供 plot_T_results() 调用 sim_T.plot_T_results() 使用。
+
+    被调用: predict.py __main__
+    """
     if isinstance(process_data, pd.DataFrame):
         if process_data.empty:
             raise ValueError("process_data 不能为空 DataFrame")
@@ -117,30 +109,40 @@ def predict_temperatures(process_data):
         raise TypeError("process_data 仅支持 pandas.DataFrame 或 pandas.Series")
 
     tem1, tem0, _ = calc._get_initial_temperature_from_row(row)
-    time, tem0, tem1 = calc.run_single_simulation(row, tem1=tem1, tem0=tem0)
+    time, tem0, tem1, state, roll_start_time = calc.run_single_simulation(
+        row, tem1=tem1, tem0=tem0,
+    )
+
+    # 存储供 sim_T.plot_T_results 调用
+    _last_sim_result["time"] = time
+    _last_sim_result["tem0"] = tem0
+    _last_sim_result["tem1"] = tem1
+    _last_sim_result["state"] = state
+    _last_sim_result["roll_start_time"] = roll_start_time
+
     return time, tem0, tem1
 
-def data_splicing(time, tem0, tem1, process_data=None):
-    """将仿真产生的全部温度与工艺参数拼接成 process_data_new（不做重采样）。
 
-    保持原签名以便兼容调用，但本函数只负责拼接全部 (0) 列后接 (1) 列。
+def data_splicing(time, tem0, tem1, process_data=None):
+    """将仿真产生的全部温度与工艺参数拼接成 process_data_new。
+
+    被调用: predict.py __main__, 外部
     """
     if not (len(time) == len(tem0) == len(tem1)):
         raise ValueError("time、tem0、tem1 长度必须一致。")
 
-    # 优先使用显式传入的工艺数据，未传入时再回退到历史全局变量 demo。
     if process_data is None:
         process_data = globals().get("demo", None)
     if process_data is None:
-        raise ValueError("未提供 process_data，且未找到全局 demo，无法拼接 process_data_new。")
+        raise ValueError("未提供 process_data，且未找到全局 demo。")
     if isinstance(process_data, pd.Series):
         process_data = process_data.to_frame().T
     elif isinstance(process_data, pd.DataFrame):
         if process_data.empty:
-            raise ValueError("demo 不能为空。")
+            raise ValueError("process_data 不能为空。")
         process_data = process_data.iloc[[0]].copy()
     else:
-        raise TypeError("demo 仅支持 pandas.DataFrame 或 pandas.Series。")
+        raise TypeError("process_data 仅支持 pandas.DataFrame 或 pandas.Series。")
 
     sim_cols = {}
     for t, t0, t1 in zip(time, tem0, tem1):
@@ -149,27 +151,32 @@ def data_splicing(time, tem0, tem1, process_data=None):
         sim_cols[f"{t_key}(1)"] = float(t1)
 
     all_sim_t_df = pd.DataFrame([sim_cols])
-    # 直接取全部非搭接点(0)列和搭接点(1)列，不做降采样
-    non_overlap_df, overlap_df = slice_temp_columns(
-        all_sim_t_df,
-        start_col=TEMP_START_COL,
-        end_col=TEMP_END_COL,
-    )
 
-    process_data_new = merge_process_and_temp(
-        process_data,
-        non_overlap_df,
-        overlap_df,
+    # 调用 calculate_all_sim_T 中的截取和拼接函数
+    non_overlap_df, overlap_df = calc.slice_temp_columns(
+        all_sim_t_df, start_col=TEMP_START_COL, end_col=TEMP_END_COL,
+    )
+    process_data_new = calc.merge_process_and_temp(
+        process_data, non_overlap_df, overlap_df,
         keep_columns=list(process_data.columns),
     )
     return process_data_new
 
+
 # 兼容旧名称
 resample_sim_data = data_splicing
 
-def predict_Ts(process_data, device="auto"):
-    """基于 process_data_new 预测力学性能 TS。"""
 
+# ═══════════════════════════════════════════════════════════════
+# TS 预测
+# ═══════════════════════════════════════════════════════════════
+
+
+def predict_Ts(process_data, device="auto"):
+    """基于 process_data_new 预测力学性能 TS。
+
+    被调用: predict.py __main__, 外部
+    """
     if isinstance(process_data, pd.Series):
         process_data = process_data.to_frame().T
     elif isinstance(process_data, pd.DataFrame):
@@ -186,7 +193,6 @@ def predict_Ts(process_data, device="auto"):
     temp_t0_cols, temp_t1_cols = ddm.infer_temp_columns(process_data)
 
     _, _, norm_params, model_seq_len = _load_predict_assets()
-    # 将温度列截断至模型训练时的序列长度，避免维度不匹配
     if model_seq_len is not None and model_seq_len < len(temp_t0_cols):
         temp_t0_cols = temp_t0_cols[:model_seq_len]
         temp_t1_cols = temp_t1_cols[:model_seq_len]
@@ -209,9 +215,7 @@ def predict_Ts(process_data, device="auto"):
 
     resolved_device = _resolve_device(device)
     model, norm_params, runtime_device = _get_model_runtime(
-        input_dim=x.shape[-1],
-        seq_len=seq_len,
-        device_str=str(resolved_device),
+        input_dim=x.shape[-1], seq_len=seq_len, device_str=str(resolved_device),
     )
 
     with torch.inference_mode():
@@ -221,107 +225,39 @@ def predict_Ts(process_data, device="auto"):
     Ts = float(pred[0]) if pred.numel() == 1 else pred.cpu().numpy()
     return Ts
 
+
+# ═══════════════════════════════════════════════════════════════
+# 可视化
+# ═══════════════════════════════════════════════════════════════
+
+
 def plot_T_results():
-    """绘制仿真温度曲线，并在每段辊道时间区间绘制虚线和交替填充背景色。"""
-    import matplotlib.pyplot as plt
-
-    # 取全局计算得到的 time, tem0, tem1（predict_temperatures 调用后应已生成）
-    if "time" not in globals() or "tem0" not in globals() or "tem1" not in globals():
-        raise RuntimeError("需要先运行 predict_temperatures() 以生成 time, tem0, tem1。")
-
-    t = globals()["time"]
-    t0 = globals()["tem0"]
-    t1 = globals()["tem1"]
-
-    fig, ax = plt.subplots(figsize=(12, 6))
-    ax.plot(t, t0, label="Non-overlap Surface (0)")
-    ax.plot(t, t1, label="Overlap Surface (1)")
-
-    # 如果 calculate_all_sim_T 中的 sim 模块保存了 roll_start_time，优先使用它进行分段显示
-    roll_start_time = None
-    try:
-        roll_start_time = calc.sim.roll_start_time
-    except Exception:
-        roll_start_time = None
-
-    if roll_start_time and len(roll_start_time) >= 2:
-        # 构造大段和小段的起始时间索引（与 sim_T.py 保持一致）
-        big_idx = [0, 1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23, 25, 26]
-        small_idx = [2, 4, 6, 8, 10, 12, 14, 16, 18, 20, 22, 24]
-
-        big_start_time = [float(roll_start_time[i]) for i in big_idx if i < len(roll_start_time)]
-        small_start_time = [float(roll_start_time[i]) for i in small_idx if i < len(roll_start_time)]
-
-        # 先画交替背景色（按大段区间填充）
-        bg_colors = ['#f6f8fb', '#fbf8f3']
-        for i in range(len(big_start_time) - 1):
-            ax.axvspan(big_start_time[i], big_start_time[i + 1], facecolor=bg_colors[i % 2], alpha=1, zorder=0)
-
-        # 使用当前 y 轴范围作为竖线的上下界
-        ymin, ymax = plt.ylim()
-
-        # 小段分割线：浅灰虚线
-        if small_start_time:
-            ax.vlines(small_start_time, ymin=ymin, ymax=ymax, linestyles='--', colors='gray', alpha=0.7)
-
-        # 大段分割线：深黑虚线
-        if big_start_time:
-            ax.vlines(big_start_time, ymin=ymin, ymax=ymax, linestyles='--', colors='black', alpha=0.7)
-    else:
-        # 回退：如果没有 roll_start_time，则在每个 time 点绘制浅灰虚线
-        ymin, ymax = plt.ylim()
-        ax.vlines(t, ymin=ymin, ymax=ymax, linestyles='--', colors='gray', alpha=0.3)
-
-    ax.set_xlabel("Time (s)")
-    ax.set_ylabel("Temperature (°C)")
-    ax.set_title("Simulation Temperature Profile")
-    ax.legend()
-    ax.grid(True)
+    """绘制仿真温度曲线 —— 直接调用 sim_T.plot_T_results()。"""
+    # 被调用: sim_T.plot_T_results (sim_T.py)
+    if "state" not in _last_sim_result or "roll_start_time" not in _last_sim_result:
+        raise RuntimeError("需要先运行 predict_temperatures() 以生成仿真结果。")
+    sim.plot_T_results(_last_sim_result["state"], _last_sim_result["roll_start_time"])
     plt.show()
+
+
+# ═══════════════════════════════════════════════════════════════
+# 主程序入口
+# ═══════════════════════════════════════════════════════════════
 
 if __name__ == "__main__":
     process_data_path = Path(__file__).resolve().parents[1] / "工艺数据全.xlsx"
     process_df = pd.read_excel(process_data_path)
-    # demo = pd.DataFrame({
-    #     "C_ELE":0.885, 
-    #     "SI_ELE":0.225,
-    #     "MN_ELE":0.478,
-    #     "P_ELE":0.0077,
-    #     "S_ELE":0.0026,
-    #     "CR_ELE":0.012,
-    #     "NI_ELE":0.0166,
-    #     "CU_ELE":0.010,
-    #     "ORT":840,
-    #     "SPEED1": 0.91,
-    #     "SPEED2": 0.88,
-    #     "SPEED3": 0.96,
-    #     "SPEED4": 1.07,
-    #     "SPEED5": 0.43,
-    #     "SPEED6": 0.43,
-    #     "SPEED7": 1.18,
-    #     "SPEED8": 0.43,
-    #     "SPEED9": 0.64,
-    #     "SPEED10": 1.49,
-    #     "FAN1": 35,
-    #     "FAN2": 4.0,
-    #     "FAN3": 3.0,
-    #     "FAN4": 0.0,
-    #     "FAN5": 37,
-    #     "FAN6": 11,
-    #     "TS": 1047
-    #     },index=[0])
 
-    n = 50
-    demo = process_df.iloc[[n-2]]
-    
+    n = 51
+    demo = process_df.iloc[[n - 2]]
+
     time, tem0, tem1 = predict_temperatures(demo)
     process_data_new = resample_sim_data(time, tem0, tem1)
     print(process_data_new)
     Ts = predict_Ts(process_data_new)
-    
-    #调用sim文件的画图函数，画出温度仿真图
+
+    # 绘制温度仿真图
     plot_T_results()
 
-    print(f"预测 TS: {Ts:.2f}; ",f"真实 TS: {demo['TS'].iloc[0]:.2f}; ",f"差值：{(Ts - demo['TS'].iloc[0]):.2f}")
-
-
+    print(f"预测 TS: {Ts:.2f}; 真实 TS: {demo['TS'].iloc[0]:.2f}; "
+          f"差值：{(Ts - demo['TS'].iloc[0]):.2f}")
