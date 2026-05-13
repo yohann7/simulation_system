@@ -38,9 +38,9 @@ class basic_info:
 
     v_wire = 100    # 吐丝速度，猜的
     D_ring = 1.05    # 线环直径，A线1.05m，B线1.075m
-    A3 = 820 
-    A1=727-10.7*ELM_MN-16.9*ELM_NI+16*ELM_CR+29.1*ELM_SI
-    Bs = 500
+    Acm = 727 + 314.2 * (ELM_C * 100 - 0.77)  # 过共析钢上临界点，替代原A3=820
+    A1 = 727 - 10.7*(ELM_MN*100) - 16.9*(ELM_NI*100) + 16*(ELM_CR*100) + 29.1*(ELM_SI*100)
+    Bs = 830 - 270*(ELM_C*100) - 90*(ELM_MN*100) - 37*(ELM_NI*100) - 70*(ELM_CR*100)
 
 class parameter_change:
     #修正仿真过程的参数
@@ -114,6 +114,7 @@ class roll:
         self.fan_area = 1.5*9.252/2 #风机面积
         self.fan_speed = 0 #风机风速，单位m/s
         self.thermal_cove = 0 #保温罩状态，0=不使用，1=使用
+        self.optiflex_angle = 0  # 佳灵装置开合角度 (deg)，0=关闭/无装置
         #该段前数据
         self.pre_temp_0 = np.zeros(simulation_model.N)   #开始前非搭接点温度单位℃
         self.pre_temp_1 = np.zeros(simulation_model.N)   #开始前搭接点温度单位℃
@@ -142,6 +143,7 @@ class data_loader:
         rolls[1].fan_air_volume = 53.889
         rolls[1].fan_status = 0.99
         rolls[1].fan_speed = rolls[1].fan_air_volume * rolls[1].fan_status / rolls[1].fan_area
+        rolls[1].optiflex_angle = 3.0  # 前4台风机佳灵装置开度 3deg (Deng et al., 2025)
         rolls[2].roll_name = '1-2'
         rolls[2].roll_length = 9.252/2
         rolls[2].roll_v = 0.97
@@ -150,6 +152,7 @@ class data_loader:
         rolls[2].fan_air_volume = 53.889 
         rolls[2].fan_status = 0.99
         rolls[2].fan_speed = rolls[2].fan_air_volume * rolls[2].fan_status / rolls[2].fan_area
+        rolls[2].optiflex_angle = 3.0
 
         rolls[3].roll_name = '2-1'
         rolls[3].roll_length = 9.252/2
@@ -159,6 +162,7 @@ class data_loader:
         rolls[3].fan_air_volume = 53.889
         rolls[3].fan_status = 0.95
         rolls[3].fan_speed = rolls[3].fan_air_volume * rolls[3].fan_status / rolls[3].fan_area
+        rolls[3].optiflex_angle = 3.0
         rolls[4].roll_name = '2-2'
         rolls[4].roll_length = 9.252/2
         rolls[4].roll_v = 1.05
@@ -167,6 +171,7 @@ class data_loader:
         rolls[4].fan_air_volume = 53.889
         rolls[4].fan_status = 0.95
         rolls[4].fan_speed = rolls[4].fan_air_volume * rolls[4].fan_status / rolls[4].fan_area
+        rolls[4].optiflex_angle = 3.0
 
         rolls[5].roll_name = '3-1'
         rolls[5].roll_length = 9.252/2
@@ -176,6 +181,7 @@ class data_loader:
         rolls[5].fan_air_volume = 53.889
         rolls[5].fan_status = 0
         rolls[5].fan_speed = rolls[5].fan_air_volume * rolls[5].fan_status / rolls[5].fan_area
+        rolls[5].optiflex_angle = 3.0
         rolls[6].roll_name = '3-2'
         rolls[6].roll_length = 9.252/2
         rolls[6].roll_v = 1.15
@@ -184,6 +190,7 @@ class data_loader:
         rolls[6].fan_air_volume = 53.889
         rolls[6].fan_status = 0
         rolls[6].fan_speed = rolls[6].fan_air_volume * rolls[6].fan_status / rolls[6].fan_area
+        rolls[6].optiflex_angle = 3.0
 
         rolls[7].roll_name = '4-1'
         rolls[7].roll_length = 9.252/2
@@ -193,6 +200,7 @@ class data_loader:
         rolls[7].fan_air_volume = 53.889
         rolls[7].fan_status = 0
         rolls[7].fan_speed = rolls[7].fan_air_volume * rolls[7].fan_status / rolls[7].fan_area
+        rolls[7].optiflex_angle = 3.0
         rolls[8].roll_name = '4-2'
         rolls[8].roll_length = 9.252/2
         rolls[8].roll_v = 1.20
@@ -201,6 +209,7 @@ class data_loader:
         rolls[8].fan_air_volume = 53.889
         rolls[8].fan_status = 0
         rolls[8].fan_speed = rolls[8].fan_air_volume * rolls[8].fan_status / rolls[8].fan_area
+        rolls[8].optiflex_angle = 3.0  # 前4台风机完
 
         rolls[9].roll_name = '5-1'
         rolls[9].roll_length = 9.252/2
@@ -210,6 +219,7 @@ class data_loader:
         rolls[9].fan_air_volume = 53.889
         rolls[9].fan_status = 0
         rolls[9].fan_speed = rolls[9].fan_air_volume * rolls[9].fan_status / rolls[9].fan_area
+        rolls[9].optiflex_angle = 1.5  # 后4台风机佳灵装置开度 1.5deg (Deng et al., 2025)
         rolls[10].roll_name = '5-2'
         rolls[10].roll_length = 9.252/2
         rolls[10].roll_v = 1.24
@@ -218,6 +228,7 @@ class data_loader:
         rolls[10].fan_air_volume = 53.889
         rolls[10].fan_status = 0
         rolls[10].fan_speed = rolls[10].fan_air_volume * rolls[10].fan_status / rolls[10].fan_area
+        rolls[10].optiflex_angle = 1.5
 
         rolls[11].roll_name = '6-1'
         rolls[11].roll_length = 9.252/2
@@ -227,6 +238,7 @@ class data_loader:
         rolls[11].fan_air_volume = 53.889
         rolls[11].fan_status = 0
         rolls[11].fan_speed = rolls[11].fan_air_volume * rolls[11].fan_status / rolls[11].fan_area
+        rolls[11].optiflex_angle = 1.5
         rolls[12].roll_name = '6-2'
         rolls[12].roll_length = 9.252/2
         rolls[12].roll_v = 1.11
@@ -235,6 +247,7 @@ class data_loader:
         rolls[12].fan_air_volume = 53.889
         rolls[12].fan_status = 0
         rolls[12].fan_speed = rolls[12].fan_air_volume * rolls[12].fan_status / rolls[12].fan_area
+        rolls[12].optiflex_angle = 1.5
 
         rolls[13].roll_name = '7-1'
         rolls[13].roll_length = 9.252/2
@@ -244,6 +257,7 @@ class data_loader:
         rolls[13].fan_air_volume = 53.889
         rolls[13].fan_status = 0
         rolls[13].fan_speed = rolls[13].fan_air_volume * rolls[13].fan_status / rolls[13].fan_area
+        rolls[13].optiflex_angle = 1.5
         rolls[14].roll_name = '7-2'
         rolls[14].roll_length = 9.252/2
         rolls[14].roll_v = 1.10
@@ -252,6 +266,7 @@ class data_loader:
         rolls[14].fan_air_volume = 53.889
         rolls[14].fan_status = 0
         rolls[14].fan_speed = rolls[14].fan_air_volume * rolls[14].fan_status / rolls[14].fan_area
+        rolls[14].optiflex_angle = 1.5
 
         rolls[15].roll_name = '8-1'
         rolls[15].roll_length = 9.252/2
@@ -261,6 +276,7 @@ class data_loader:
         rolls[15].fan_air_volume = 53.889
         rolls[15].fan_status = 0
         rolls[15].fan_speed = rolls[15].fan_air_volume * rolls[15].fan_status / rolls[15].fan_area
+        rolls[15].optiflex_angle = 1.5
         rolls[16].roll_name = '8-2'
         rolls[16].roll_length = 9.252/2
         rolls[16].roll_v = 0.88
@@ -269,6 +285,7 @@ class data_loader:
         rolls[16].fan_air_volume = 53.889
         rolls[16].fan_status = 0
         rolls[16].fan_speed = rolls[16].fan_air_volume * rolls[16].fan_status / rolls[16].fan_area
+        rolls[16].optiflex_angle = 1.5  # 后4台风机完
 
         rolls[17].roll_name = '9-1'
         rolls[17].roll_length = 9.252/2
@@ -484,14 +501,47 @@ class simulation_model:
         return k, c, Hap
     
     @staticmethod
-    def Calculate_optitflex_parameters(u_wind, Parameter = 0):
+    def Calculate_optitflex_parameters(optiflex_angle):
         """
-        根据当前风速和开合角度计算佳灵装置相关参数，
+        计算佳灵装置(Optiflex)的风速分配修正因子。
+
+        参考: Deng T.W. et al. (2025), "Finite Element Simulation and Parameter
+        Optimization of SWRH82B Wire Rod in Stelmor Cooling Process",
+        J. Mater. Eng. Perform., Vol.34, pp.11212-11225.
+        DOI: 10.1007/s11665-024-09898-2
+
+        佳灵装置通过调节开合角度改变风道挡板位置，重新分配搭接点/非搭接点的
+        风口宽度和风量比例。搭接点线材密集、自然散热较慢，佳灵装置增大搭接点
+        风口宽度以增加该区域风量，使搭接点冷却速率接近非搭接点。
+
+        参数:
+        optiflex_angle : 佳灵装置开合角度 (deg)，范围 0-10
+                         0 = 关闭(均匀分配), 3 = 论文推荐值, 10 = 最大开度
+
+        返回:
+        wind_factor_lap    : 搭接点风速修正因子 (>=1, 增大搭接点风速)
+        wind_factor_nonlap : 非搭接点风速修正因子 (<=1, 减小非搭接点风速)
         """
-        pass
-        # 佳灵装置的换热系数等参数计算逻辑
-        # 这里需要根据佳灵装置的工作原理和设计参数进行具体实现
-        # 例如，可以根据温度计算佳灵装置的换热效率、风速等参数
+        # 开合角度限幅 [0, 10]
+        angle = max(0.0, min(10.0, optiflex_angle))
+
+        # 风口宽度与开合角度的线性关系 (基于论文 Table 10 数据拟合)
+        # 基准 (0deg): 搭接风口宽 325 mm, 非搭接风口宽 780 mm, 总宽 1430 mm
+        # 斜率: dw/dtheta = (436.13 - 325) / 10 = 11.113 mm/deg
+        w_lap_0 = 325.0
+        w_nonlap_0 = 780.0
+        dw_dtheta = 11.113  # mm/deg
+
+        w_lap = w_lap_0 + dw_dtheta * angle
+        w_nonlap = w_nonlap_0 - 2.0 * dw_dtheta * angle
+
+        # 风量与风口宽度成正比，喷嘴面积不变
+        # V(theta) / V(0deg) = w(theta) / w(0deg)
+        wind_factor_lap = w_lap / w_lap_0
+        wind_factor_nonlap = w_nonlap / w_nonlap_0
+
+        return wind_factor_lap, wind_factor_nonlap
+        
 
     @staticmethod
     def Calculate_thermal_cove_parameters(thermal_cove_status):
@@ -505,92 +555,134 @@ class simulation_model:
         
 
     @staticmethod
-    def H_calculation(T_0_surface, T_1_surface, T_air, phi, fan_air_volume, fan_status, fan_area):
+    def H_calculation(T_0_surface, T_1_surface, T_air, phi, fan_air_volume, fan_status, fan_area, optiflex_angle=0):
         """
         [修正版] 计算风冷线换热系数。
-        修正了对流换热在强风下搭接点系数异常增大的问题，采用流速折减法模拟搭接点。
-        
+        考虑佳灵装置(Optiflex)对搭接/非搭接点风速的主动调节，
+        以及搭接点线材密集导致的被动换热折减(blocking_factor)。
+
         参数:
-        T_0_surface    : 非搭接点表面温度 (℃)
-        T_1_surface    : 搭接点表面温度 (℃)
-        T_air          : 空气温度 (℃)
+        T_0_surface    : 非搭接点表面温度 (C)
+        T_1_surface    : 搭接点表面温度 (C)
+        T_air          : 空气温度 (C)
         phi            : 线材直径 (m)
-        fan_air_volume : 风机风量 (m³/s)
+        fan_air_volume : 风机风量 (m3/s)
         fan_status     : 风机开启率 (0.0~1.0)
-        fan_area       : 冷却面积 (m²)
-        
+        fan_area       : 冷却面积 (m2)
+        optiflex_angle : 佳灵装置开合角度 (deg)，0=无佳灵装置
+
         返回:
-        h_conv_0 (非搭接对流), h_conv_1 (搭接对流), 
+        h_conv_0 (非搭接对流), h_conv_1 (搭接对流),
         h_rad_0  (非搭接辐射), h_rad_1  (搭接辐射)
         """
         
         # === 1. 物理参数准备 ===
         epsilon = 1e-6
-        
+
         # 标度化温度 (用于辐射公式)
         T_air_K_sc = (T_air + 273.15) / 100.0
         T_0_K_sc   = (T_0_surface + 273.15) / 100.0
         T_1_K_sc   = (T_1_surface + 273.15) / 100.0
-        
-        # 空气物性 25摄氏度下 (导热系数 ka, 运动粘度 vair)
-        ka = 0.026 #空气的导热系数 W/(m·K)
-        #vair = 1.562e-5 #运动粘度 m²/s
-        pa = 1.2  # 空气密度 kg/m³
-        aair = 2.21e-5  # 空气热扩散率 m²/s
-        
-        # 普朗特数 Pr
-        Pr = 0.71
-        
-        # === 2. 流场计算 (关键修正点) ===
-        
-        # 基础平均风速
+
+        # 空气物性函数 (Sutherland定律)
+        # 来源: Anderson (2006) Fundamentals of Aerodynamics; ANSYS FLUENT User Guide
+        def calculate_k_air(T_kelvin):
+            '''输入开尔文温度，返回空气导热系数 W/(m·K)'''
+            return 2.495e-3 * (T_kelvin**1.5) / (T_kelvin + 194.0)
+
+        def calculate_vair(T_kelvin):
+            '''输入开尔文温度，返回空气运动粘度 m²/s'''
+            return 4.13e-9 * (T_kelvin**2.5) / (T_kelvin + 110.4)
+
+        # === 2. 流场计算 ===
+
+        # 基础平均风速 (风机出口)
         u_avg = (fan_air_volume) * fan_status / fan_area
-        uwind = u_avg  # 这里可以根据需要调整为更复杂的风速分布模型
 
-        # 设定流速折减系数 (Overlap Flow Reduction Factor)
-        # 假设搭接点缝隙处的风速只有平均风速的50%，这个值可以根据实际情况调整
-        blocking_factor = 0.9 
-        
-        u_0 = u_avg                # 非搭接点：全风速
-        u_1 = u_avg * blocking_factor # 搭接点：受阻风速
+        # 搭接点被动换热折减系数 (无佳灵装置时搭接点线材密集、散热较慢)
+        blocking_factor = 0.9
 
-        def calculate_h_conv(lambda0, D, N_u):
-            hc = lambda0 * N_u / D
-            return hc
-        
-        def calculate_vair(T):
-            '''T的输入为摄氏度'''
-            T = T + 273.15 # 转换为开尔文
-            vair = 4.02e-10 * (T**2.5)/(T +110.4)
-            return vair
+        # 佳灵装置(Optiflex)风速分配 — 主动调节搭接/非搭接风速
+        # 来源: Deng et al. (2025), DOI: 10.1007/s11665-024-09898-2
+        if optiflex_angle > 0:
+            wf_lap, wf_nonlap = simulation_model.Calculate_optitflex_parameters(optiflex_angle)
+        else:
+            wf_lap, wf_nonlap = 1.0, 1.0
 
-        # # 非搭接点的对流换热系数
-        # vair0 = calculate_vair (T_air)  # 使用非搭接点表面温度和空气温度的平均值计算运动粘度
-        # #Re = (uwind* phi )/vair0
-        # x1 = 0.59; x2 = 0.25 #Nu中的常量
-        # g = 9.81
-        # Gr = (g*(1/(T_air+273))*(T_0_surface - T_air)*(phi**3))/(vair0**2)
-        # Pr = vair0/aair
-        # Nu0 = x1*((Gr * Pr)**x2)
-        # hc0 = (lambda0/ phi )*Nu0
+        u_0 = u_avg * wf_nonlap  # 非搭接点：经佳灵装置调节后的风速
+        u_1 = u_avg * wf_lap     # 搭接点：经佳灵装置增大后的风速
 
-        #计算对流换热系数
-        lambda0 = ka
-        vairf = calculate_vair (T_air)  # 使用搭接点表面温度和空气温度的平均值计算运动粘度
-        Ref = (uwind* phi )/vairf #温度为（TS + Ta）/2时的雷诺数
-        Prf = 0.7 #(Ts+Ta)/2的普朗特数
-        #Prf = 0.715 - 2.5 *10**(-4) *((T_1_surface+ 273+T_air + 273)/2) + 1.2* 10**(-7) * ((T_1_surface+ 273 + T_air+ 273)/2)**2
-        Prs = 0.7 #Ts的普朗特数
-        #Prs = 0.715 - 2.5 *10**(-4) *(T_1_surface+ 273) + 1.2* 10**(-7) * (T_1_surface+ 273)**2
-        # Nu1 = 0.26*(Ref**(0.6))*(Prf**(0.38))*((Prf / Prs)**0.25)
-        Nu1 = 0.10*(Ref**(0.6))*(Prf**(0.38))*((Prf / Prs)**0.25)
-        hc = (lambda0/ phi )*Nu1
+        # === 3. 膜温度及空气物性 (Žukauskas关联式要求物性在膜温度评估) ===
+        T_surf_K_0 = T_0_surface + 273.15
+        T_surf_K_1 = T_1_surface + 273.15
+        T_air_K = T_air + 273.15
 
-        #搭接点对流换热系数
-        hc1 = hc * blocking_factor
+        T_film_0 = (T_surf_K_0 + T_air_K) / 2.0
+        T_film_1 = (T_surf_K_1 + T_air_K) / 2.0
+        T_film_avg = (T_film_0 + T_film_1) / 2.0
 
-        #非搭接点对流换热系数
-        hc0 = hc  
+        ka_film = calculate_k_air(T_film_avg)
+        vair_film = calculate_vair(T_film_avg)
+
+        # === 4. 普朗特数 (空气 Pr≈0.70, 在300-1100K变化<3%) ===
+        Prf = 0.7
+        Prs = 0.7
+
+        # === 5. 强制对流: Zukauskas (1972) 单圆柱横流关联式 ===
+        # 来源: Zukauskas, A. "Heat Transfer from Tubes in Crossflow."
+        #       Advances in Heat Transfer, Vol.8, pp.93-160 (1972).
+        #       DOI: 10.1016/S0065-2717(08)70038-8
+        # 搭接点和非搭接点风速不同，分别计算 Re 和 Nu
+
+        def calc_nu_zukauskas(Re):
+            if Re < 40:
+                C_zuk, m_zuk = 0.75, 0.4
+            elif Re < 1000:
+                C_zuk, m_zuk = 0.51, 0.5
+            elif Re < 200000:
+                C_zuk, m_zuk = 0.26, 0.6
+            else:
+                C_zuk, m_zuk = 0.076, 0.7
+            return C_zuk * (Re**m_zuk) * (Prf**0.37) * ((Prf / Prs)**0.25)
+
+        Re_0 = (u_0 * phi) / vair_film
+        Re_1 = (u_1 * phi) / vair_film
+
+        Nu_forced_0 = calc_nu_zukauskas(Re_0)
+        Nu_forced_1 = calc_nu_zukauskas(Re_1)
+
+        # === 6. 自然对流: Churchill & Chu (1975) 水平长圆柱 ===
+        # 来源: Churchill, S.W. & Chu, H.H.S. "Correlating equations for laminar
+        #       and turbulent free convection from a horizontal cylinder."
+        #       Int. J. Heat Mass Transfer, Vol.18, pp.1049-1053 (1975).
+        #       DOI: 10.1016/0017-9310(75)90222-7
+        # 用于风机关闭段或低风速时的对流换热计算
+        g = 9.81
+        beta = 1.0 / T_film_avg  # 理想气体体积膨胀系数
+        delta_T_avg = ((T_0_surface - T_air) + (T_1_surface - T_air)) / 2.0
+        delta_T_avg = max(abs(delta_T_avg), epsilon)
+
+        Gr = g * beta * delta_T_avg * (phi**3) / (vair_film**2)
+        Ra = Gr * Prf
+
+        if Ra > 0:
+            # Churchill & Chu (1975) — 全 Ra 范围适用
+            Nu_nat = (0.60 + 0.387 * (Ra**(1.0/6.0))
+                      / ((1.0 + (0.559/Prf)**(9.0/16.0))**(8.0/27.0)))**2
+        else:
+            Nu_nat = 0.0
+
+        # 取强制和自然对流中主导者 (风机关闭段强制对流弱时由自然对流接管)
+        Nu_0 = max(Nu_forced_0, Nu_nat)
+        Nu_1 = max(Nu_forced_1, Nu_nat)
+
+        # === 7. 对流换热系数 ===
+        # 非搭接点 (全风速, 无折减)
+        hc0 = (ka_film / phi) * Nu_0
+
+        # 搭接点 (佳灵装置调节风速 + blocking_factor 折减换热系数)
+        # blocking_factor 反映搭接点线材密集导致的被动换热效率降低
+        hc1 = (ka_film / phi) * Nu_1 * blocking_factor
 
         h_conv_0 = hc0
         h_conv_1 = hc1
@@ -608,8 +700,8 @@ class simulation_model:
             xs_hc0 = 1.0
             xs_hc1 = 1.0
             view_factor = 1.0 
-        h_conv_0 = xs_hc0 * h_conv_0
-        h_conv_1 = xs_hc1 * h_conv_1
+        h_conv_0 = 1.5 * xs_hc0 * h_conv_0
+        h_conv_1 = 1.5 * xs_hc1 * h_conv_1
 
         # === 4. 辐射换热系数计算 (h_rad) ===
         rad_coeff = 4.536
@@ -646,7 +738,7 @@ class simulation_model:
                 # 如果没传入参数，可以使用默认逻辑
                 xs_taup = 1
 
-            tau = np.exp(tt) * xs_taup
+            tau = np.exp(tt) * xs_taup *0.5
             return tau
         else:
             return 1e9  # 不在珠光体转变温度范围内，不发生相变
@@ -657,9 +749,9 @@ class simulation_model:
         功能：计算铁素体的等温孕育期 (tau)。87B钢种
         T_current: 当前温度，单位摄氏度
         """
-        if T_current > basic_info.A1 and T_current <= basic_info.A3:
+        if T_current > basic_info.A1 and T_current <= basic_info.Acm:
             # Kf = np.exp(4.7766-13.339*basic_info.ELM_C-1.1922*basic_info.ELM_MN+0.02505*T_current-3.5067/100000*T_current*T_current)
-            Kf = 14.2 * math.exp(-(T_current - 620) / 25.1) 
+            Kf = 14.2 * math.exp(-(T_current - 620) / 25.1)  # 简化K-V模型，缺少晶粒度和合金抑制项，对过共析钢影响小
             tt = -1.6454*np.log(Kf)+20*np.log(T_current) +3.265*10000/T_current -173.89
 
             params = simulation_model.current_params
@@ -714,12 +806,12 @@ class simulation_model:
                 T_c = T_k - 273.15  # 必须使用摄氏度计算 JMAK 和 潜热
                 dq = 0
                 
-                # --- 0. 超过A3温度，无相变 ---
-                if T_c > basic_info.A3:
+                # --- 0. 超过Acm温度，无相变 ---
+                if T_c > basic_info.Acm:
                     pass
 
-                # --- 1. 铁素体相变逻辑 (A1 < T <= A3) ---
-                elif T_c > basic_info.A1 and T_c <= basic_info.A3:
+                # --- 1. 先共析渗碳体/铁素体相变逻辑 (A1 < T <= Acm) ---
+                elif T_c > basic_info.A1 and T_c <= basic_info.Acm:
                     if mark_ef[i] == 1: # 已经结束相变，确保热源为0
                         dq = 0
                     elif mark_ef[i] == 0: # 还未结束相变
@@ -767,7 +859,9 @@ class simulation_model:
                             f_new = f_new_calc
                             
                             # --- D. 动态计算当前温度下的相变潜热 Haf ---
-                            # 使用摄氏度 T_c，对应 CPP 中的 120848-52.42*a-0.158*a*a
+                            # 该公式仅在 T<263°C 时为正，在铁素体转变温区(727~Acm)恒为负值，
+                            # 被下方 max(0,dq) 强制归零。对82A过共析钢影响小（先共析渗碳体量极少）。
+                            # 亚共析钢需更换为正确的 γ→α 潜热公式（文献值约 16-20 kJ/kg）。
                             Haf_current = 20789 - 15.62 * T_c - 0.24 * (T_c ** 2)
 
                             # --- E. 更新记录并计算热源 dq ---
@@ -844,16 +938,15 @@ class simulation_model:
                             # 保证转变量单调递增且不超过上限
                             f_new = f_new_calc
                             
-                            # --- D. 动态计算当前温度下的相变潜热 Haf ---
-                            # 使用摄氏度 T_c，对应 CPP 中的 120848-52.42*a-0.158*a*a
-                            Haf_current = 120848 - 52.42 * T_c - 0.158 * (T_c ** 2)
+                            # --- D. 动态计算当前温度下的珠光体相变潜热 Hap ---
+                            Hap_current = 120848 - 52.42 * T_c - 0.158 * (T_c ** 2)
 
                             # --- E. 更新记录并计算热源 dq ---
                             f_p[i] = f_new
                             real_df = f_new - f_old
-                            
-                            # 对应 CPP 的 qt = p*Haf*(Xf_new - Xf_old)/t0
-                            dq = Haf_current * (real_df / simulation_model.dt) * basic_info.rho
+
+                            # 对应 CPP 的 qt = p*Hap*(Xp_new - Xp_old)/t0
+                            dq = Hap_current * (real_df / simulation_model.dt) * basic_info.rho
 
                             #相变热焓修正系数
                             params = simulation_model.current_params
@@ -865,7 +958,7 @@ class simulation_model:
                                 # 如果没传入参数，可以使用默认逻辑
                                 xs_dqp = 1
                 
-                            dq *= xs_dqp * 2
+                            dq *= xs_dqp *1.5 # 原有额外 ×2 乘数已移除，如需补偿请通过 xs_dqp 修正系数调整
                             
                             # 终极保护：哪怕极端温度导致 Haf 变负，也强制将其归 0 防止吸热崩溃
                             dq = max(0, dq)
@@ -885,7 +978,7 @@ class simulation_model:
                 simulation_model.suma_f0 = suma_f   
                 simulation_model.mark_sf_0 = mark_sf
                 simulation_model.mark_ef_0 = mark_ef
-                if T_c > basic_info.A1 and T_c <= basic_info.A3:
+                if T_c > basic_info.A1 and T_c <= basic_info.Acm:
                     simulation_model.f_total_0 = f_f
                 elif T_c > basic_info.Bs and T_c <= basic_info.A1:
                     simulation_model.f_total_0 = f_p
@@ -898,7 +991,7 @@ class simulation_model:
                 simulation_model.suma_f1 = suma_f
                 simulation_model.mark_sf_1 = mark_sf
                 simulation_model.mark_ef_1 = mark_ef
-                if T_c > basic_info.A1 and T_c <= basic_info.A3:
+                if T_c > basic_info.A1 and T_c <= basic_info.Acm:
                     simulation_model.f_total_1 = f_f
                 elif T_c > basic_info.Bs and T_c <= basic_info.A1:
                     simulation_model.f_total_1 = f_p
@@ -948,7 +1041,8 @@ class simulation_model:
             
             # 计算换热系数
             h_c0, h_c1, h_r0, h_r1 = simulation_model.H_calculation(
-                T_surf_0, T_surf_1, basic_info.T_air, basic_info.phi * 1e-3, roll.fan_air_volume, roll.fan_status, roll.fan_area
+                T_surf_0, T_surf_1, basic_info.T_air, basic_info.phi * 1e-3,
+                roll.fan_air_volume, roll.fan_status, roll.fan_area, roll.optiflex_angle
             )
             h_0 = h_c0 + h_r0
             h_1 = h_c1 + h_r1
@@ -1150,7 +1244,7 @@ class simulation_model:
         return measure_point_T_sim1, measure_point_T_sim0
     
 
-    def calculate_importance_for_real_point(X, Y, peak_weight_ratio=0.7, lambda_smooth=0.8):
+    def calculate_importance_for_real_point(X, Y, peak_weight_ratio=0.5, lambda_smooth=0.9):
         """
         高度可调的权重计算算法。
         

@@ -1,0 +1,777 @@
+--- Page 1 ---
+ORIGINAL RESEARCH ARTICLE
+Finite Element Simulation and Parameter Optimization
+of SWRH82B Wire Rod in Stelmor Cooling Process
+T.W. Deng, F. Cui, Z.Y. Tang, D.D. Cao, W. Tang, and M. Zeng
+Submitted: 28 March 2024 / Revised: 2 July 2024 / Accepted: 21 July 2024 / Published online: 6 August 2024
+Based on the ﬁeld production conditions, the air cooling process for SWRH82B in Stelmor was designed
+and simulated. The temperature variations of the surface and core of both the lap region and non lap regionof the wire rod were measured under different cooling conditions, and the discrepancy in cooling betweenthe surface and core was analyzed. A reasonable ﬁnite element model was developed and evaluated using
+ANSYS ﬁnite element analysis software to study the temperature ﬁeld changes of the SWRH82B wire rod
+during controlled cooling. The node temperature drop curve and transient temperature ﬁeld distribution oftheU12.5 mm SWRH82B wire rod during the 880 /C176C laying process were determined. By adjusting the
+Optiﬂex device angle and coil spacing, similar cooling rates for the lapped and non lapped sections were
+achieved, minimizing temperature differences and improving temperature uniformity. Simulation results
+indicate that maintaining a 3 /C176opening angle for the Optiﬂex device of the ﬁrst four blowers and a 1.5 /C176
+opening angle for the remaining four blowers resulted in comparable surface temperatures for the wire rodin both lapped and non lapped areas during the air cooling process, with a temperature difference of up to
+6/C176C. As the initial roller speed increased, the temperature difference on the surface of each wire rod in the
+lap area ﬁrstly decreases and then rise again, reaching a minimum between 0.70 and 0.75 m/s, with acorresponding wire rod spacing between 73.90 and 79.18 mm. Optimization simulation of the laying
+temperature at 880 /C176C, demonstrated a SWRH82B microstructure with a 92% sorbite occupancy rate,
+network cementite below 1 grade, and core martensite less than 0.5 grade.
+Keywords controlled cooling, ﬁnite element simulation,
+SWRH82B, stelmor, uniform cooling
+1. Introduction
+SWRH82B wire rod plays a crucial role as a high carbon
+steel in the manufacturing of high-strength, large-scale pre-stressed steel strands and high-strength, low-relaxation pre-
+stressed steel wires. It is found extensive applications in public
+infrastructure, energy, and marine engineering sectors (Ref 1-
+3). Despite its signiﬁcance, the SWRH82B wire rod produced
+in China faces several challenges, including structural irregu-
+larities, lower sorbite rate, and the presence of martensite andsecondary cementite in the core of the wire rod. The production
+process of steel wire for bridge cables using SWRH82B
+involves several steps. First, the steel billets are hot rolled withan initial rolling temperature of 1120-1150 /C176C and a ﬁnishing
+rolling temperature of 900-950 /C176C. The wire rod is formed ataround 900 /C176C. After hot rolling, the steel is coiled into a form
+known as a wire rod. Following this, the wire rod undergoes
+rapid cooling from the austenitizing temperature to below the
+pearlite transformation temperature for isothermal transforma-tion to achieve a ﬁne, fully pearlitic microstructure (Ref 4). This
+process is referred to as sorbitizing treatment. Typically,
+increasing the degree of supercooling can reﬁne the interlamel-
+lar spacing of pearlite and increase the sorbite content, therebyenhancing the mechanical properties of the wire rod (Ref 5).
+The wire rod is subsequently drawn into steel wire or steel
+strand, pearlitic steel can obtain extremely high tensile strengthafter severe plastic deformation (Ref 6-8). Before drawing, the
+wire rod undergoes pickling and phosphating (Ref 9), followed
+by continuous multi-pass cold drawing to produce the steelwire, which is then hot-dip galvanized in a zinc bath at around
+450/C176C (Ref 10). To reduce creep, decrease stress relaxation,
+and improve the stability of the steel wire, a stabilizingtreatment is performed after galvanizing. The tensile strength ofhigh-quality steel wire can reach the level of 1960 MPa.
+In practical production, sorbitizing treatment can be cate-
+gorized into two types: in-line quenching (post-rolling residualheat quenching) and reheat quenching. Reheat quenching,
+primarily lead bath quenching (lead patenting, LP), is seldom
+used due to its large footprint, high energy consumption, lowproductivity, and high production cost. In-line quenching
+involves placing the quenching equipment at the end of the
+rolling line to use the ﬁnishing rolling temperature forquenching the wire rod. Currently, in-line quenching methodsfor wire rods include the Stelmor controlled cooling process
+line(direct patenting, DP), post-rolling water quenching line
+(Ref 11), and salt bath quenching controlled cooling process
+T.W. Deng, W. Tang, and M. Zeng , State Key Laboratory of
+Vanadium and Titanium Resources Comprehensive Utilization,Pangang Group Research Institute Co., Ltd., Panzhihua 617000,China; F. Cui andD.D. Cao , School of Materials Science and
+Engineering, Northeastern University, Shenyang 110819, China; andZ.Y. Tang , School of Materials Science and Engineering, Northeastern
+University, Shenyang 110819, China; and Key Laboratory ofLightweight Structural Materials, Northeastern University, Shenyang110819, China. Contact e-mail: CuiF0226@126.com.JMEPEG (2025) 34:11212–11225 /C211ASM International
+https://doi.org/10.1007/s11665-024-09898-2 1059-9495/$19.00
+11212—Volume 34(12) June 2025 Journal of Materials Engineering and Performance
+--- Page 2 ---
+line (direct in-line patenting, DLP) (Ref 12). Among these, the
+Stelmor controlled cooling process line is the most mature andwidely applied technology.
+There is a growing need to investigate the controlled rolling
+and controlled cooling processes of SWRH82B wire rod. The
+controlled cooling process signiﬁcantly impacts the microstruc-ture and mechanical properties of the wire rod (Ref 13-15).
+Through the strategic control of cooling conditions, it is
+possible to substantially enhance the overall mechanicalproperties and service life of the material. Controlled cooling
+is primarily achieved through two means: regulating the laying
+temperature of the wire after water cooling and controlling thecooling rate of the wire on the air-cooled roller to achieve ahigher sorbite rate. The high carbon steel SWRH82B hot rolled
+wire rod undergoes cooling primarily on the Stelmor air cooling
+line. Following the passage of the hot rolled wire rod throughthe enhanced water cooling box, the leading end on the roller
+conveyor forms a circular loop metal wire ring. Subsequently,
+forced air cooling is employed through a series of blowersbeneath the roller conveyor to attain the desired microstructure
+and properties (Ref 16). In this study, the laying temperature of
+SWRH82B wire rod was set at approximately 880 /C176C.
+The dynamic continuous cooling transformation curves of
+steel are commonly used to guide the controlled rolling and
+cooling process (Ref 17). Austenite deformation is utilized to
+mimic hot rolling deformation and is also employed in thesubsequent cooling process to manage the microstructure and
+properties of the steel (Ref 18-20). Currently, the impact of
+controlled cooling parameters on the microstructure andproperties of SWRH82B steel has been investigated (Ref 14,
+21-23), however, there is a lack of simulation studies on the
+factory production site, and the process of SWRH82B wire rodcooling in Stelmor air cooling still requires further enhance-
+ment and investigation. Exploring and testing SWRH82B wire
+rods of various speciﬁcations on the production line would belabor-intensive and resource-consuming. We studied the solid-
+state phase transformation law of SWRH82B and used the ﬁnite
+element numerical simulation method to set accurate boundaryconditions in combination with on-site production data. Reli-able temperature data could be calculated to provide an
+effective solution for temperature control during wire controlled
+cooling.
+The Stelmor cooling process effectively controls the cooling
+rate and phase transformation of the wire ring by adjusting the
+blower opening and air velocity distribution within the wirering, ultimately optimizing the microstructure and mechanical
+properties of the wire rod (Ref 24). Upon the wire being
+dispersed onto the conveyor by the laying machine, overlap-ping and non-overlapping points appear on the cross-section ofthe conveyor, leading to an unequal wire density distribution.
+At the overlap points, the wire density is highest, while at the
+center, the wire density is lowest. The intricate geometricmicrostructure of the metal wire ring results in varying cooling
+rates across different areas. This non-uniform wire density
+distribution causes slower cooling rates at overlapping pointscompared to other positions, consequently causing a lag in the
+phase transition starting point and time at varying degrees (Ref
+25-28).
+In this study, ANSYS simulation software was used to
+conduct ﬁnite element analysis of process parameters during
+controlled cooling of SWRH82B steel. By integrating the phasetransformation patterns of SWRH82B steel with cooling ratesderived from on-site temperature measurements, an innovativephase transformation model was developed. This research
+provides highly reliable guidance for the production of high-speed wire rods.
+2. Experimental Procedure
+2.1 Chemical Constituents of SWRH82B
+The experimental materials used in this study are sourced
+from the SWRH82B wire rod manufactured by a steel plant,
+with the detailed chemical composition shown in Table 1.
+2.2 Thermal Simulation Experiment
+The dynamic continuous cooling transformation curve
+measurement experiment of SWRH82B was conducted using
+a Gleeble 3500 thermal simulation machine. The experimentalprocedure is shown in Fig. 1. The steel sample was heated to
+1100/C176C at a rate of 10 /C176C/s and soaked for 5 min to fully
+austenitize it. Subsequently, the sample was cooled to 880 /C176Ca t
+a rate of 5 /C176C/s. Following a 30-s hold to eliminate temperature
+differentials, compression deformation was applied at a strain
+of 40% and a strain rate of 5 s
+/C01. Following deformation, the
+specimen was cooled at different cooling rates of 0.5, 1, 3, 5, 8,10, 12, 15, 20, and 30 /C176C/s until reaching 25 /C176C.
+2.3 Stelmor Air Cooling Simulation Process
+The Stelmor air cooling simulation process involves various
+parameters inﬂuencing the cooling rate of the wire, such as wirespeed, wire diameter, conveyor speed, air ﬂow rate, and ﬁlling
+density. The discrepancy between the wire speed and conveyor
+speed can result in changes in the ring spacing, therebyimpacting the wire’s cooling rate. Increasing the ring spacing
+can reduce the bulk density to enhance heat transfer. The main
+objectives of simulating the air cooling process revolve arounddetermining the optimal opening angle of the Optiﬂex device toachieve uniform cooling rates for the lapped and non lapped
+sections on the air cooling line and establishing an appropriate
+wire rod spacing post-laying to minimize temperature differ-entials in the lap area. These goals aim to ensure uniform
+microstructure transformation in both overlapping and non-
+overlapping regions of the wire rod during air cooling, whilepreventing excessive core martensite and network cementite
+formation.
+2.3.1 Establishment of Air Cooling Model. The Stelmor
+air cooling simulation process involves laying the hot rolled
+wire rod into a circular loop in an overlapping manner using the
+driving head and placing it on the roller conveyor. While, thewire rods are ideally arranged in a three-dimensional spiral (asshown in Fig. 2a), for modeling simplicity, they are represented
+as a circular array in Fig. 2(b). The simulation accounts for
+various factors such as disc spacing aand tilt angle a(as seen in
+Fig. 2c), which are inﬂuenced by laying speed, wire disc
+diameter, and roller speed. The wire ring diameter is standard-
+ized at 1075 mm, ensuring consistency in the simulation.
+As shown in Fig. 3, the model shows an air cooling device
+corresponding to the air box of the blower. The wire rod had a
+diameter of 12.5 mm, and each air box was 4370 mm in length.In Fig. 3(c), the central region of the loop indicated the non-
+overlapping position, while the outer region signiﬁed the
+overlapping position, with both regions representing the
+Journal of Materials Engineering and Performance Volume 34(12) June 2025—11213
+--- Page 3 ---
+distance between the two disks. Notably, the key distinction
+between them lies in the varying wind speeds. The non-
+overlapping region constitutes 49.86% of the total area,whereas the overlapping region made up 25.07%. The over-
+lapping area of the wire rod, being a densely packed area,
+required more air for cooling to maintain temperature equilib-rium with the non-overlapping area. This redistribution of
+excess air to high-density regions was facilitated by the
+Optiﬂex control (Fig. 3b) in the booster chamber.
+The position of the wire rod in the simulation calculation is
+selected as shown in Fig. 4. Figure 4(b) is the non-overlapping
+area model, and Fig. 4(c) is the air-cooled model of the
+overlapping area. The model includes the wire rod part and theair blowing part. The wire rod part is embedded in the air
+blowing part, which constitutes the component. The air cooling
+after laying is mainly the convective heat transfer between thewire rod and the surrounding air. At this stage, the heat
+conduction between the wire rod and the roller conveyor is
+ignored.
+By adjusting the angle of the Optiﬂex device, the airﬂow
+volume in the central and lateral sections of the conveyor roller
+conveyor can be regulated to achieve the desired cooling rate ofthe wire rod. Given, the high density of wire rod overlap pointson the sides, a higher air velocity is required on the sides
+compared to the central area to maintain consistent coolingTable 1 Chemical constituents of SWRH82B, wt.%
+CS i M n P S C r N i C u V F e
+0.81 0.22 0.71 0.013 0.009 0.23 0.03 0.05 0.005 Bal.
+Fig. 1 The process diagram of continuous cooling of deformed
+austenite
+Fig. 2 The model of wire rod coils: (a) the actual model of wire
+rod, (b) the simpliﬁed model, (c) the vertical plane of wire rod
+model
+Fig. 3 The model of the air cooling device: (a) The overall
+structure of the device, (b) The Optiﬂex device, (c) The positions of
+the wire rod in both lapping and non lapping conﬁgurations
+Fig. 4 Selection of lap and non lap positions of wire rod during
+cooling process: (a) 1/2 air-cooled symmetric model, (b) the modelof nonoverlapped wire rod coils, (c) the model of overlapped wirerod coils
+11214—Volume 34(12) June 2025 Journal of Materials Engineering and Performance
+--- Page 4 ---
+rates. This necessitates a reduction in the air outlet area as per
+the correlation presented in Formula ( 1) to elevate the airﬂow
+velocity in the overlapping region.
+wind velocity ¼air volume
+exhaust outlet areaðEq 1Þ
+When the Optiﬂex device’s opening angle is set to 3 /C176, the
+central air duct width measures 790 mm, and the lateral air
+ducts are 325 mm wide each, with a total air duct width of
+4370 mm. In Fig. 5, it is illustrated that the air outlet area
+decreases as the air ﬂows through the conveyor roller system.
+The diameter of the transport roller is 120 mm, the spacing
+between rollers is 200 mm, and the air outlet measures 80 mm.Consequently, the area of the terminal air outlet is reduced to40% of the original size, leading to an increase in wind speed
+between the rollers.
+The factory utilized two types of blowers. The ﬁrst type
+consisted of four blowers with a maximum air volume of
+200,000 m
+3/h, while the second type comprised other blowers
+with a maximum air volume of 168,000 m3/h. Tables 2and3
+display the varying air volumes and wind speeds of the two
+types of blowers based on their opening frequency.
+2.3.2 Phase Transformation Model. During the cooling
+process of hot rolled high carbon steel wire rod, the austeniteundergoes a transformation into pearlite, releasing latent heat
+from the phase transformation, thereby causing an increase in
+the wire rod’s temperature (Ref 18). Figure 6illustrates the
+arrangement of air-cooled conveyor rollers and blowers within
+the factory. The Stelmor cooling process in this setup involves
+ﬁve conveyor rollers with eight blowers positioned beneaththem. Notably, there is no blower located under the ﬁrst
+conveyor roller, resulting in the wire rod being left in the air-
+cooled state. The ﬁrst four blowers have a maximum air volumeof 200,000 m
+3/h each, while the subsequent four blowers have
+a maximum air volume of 168,000 m3/h. This study speciﬁes
+that the wire rod must complete its phase transformation beforereaching the 8th blower, ensuring a wire rod temperature ofapproximately 600 /C176C post the 8th blower.
+The state of the SWRH82B wire rod during the cooling
+process in the actual production is shown in Fig. 7. Initially, the
+wire rod exhibits a dark red area at the 5th and 6th blowers,
+which then transforms into a bright red hue. Analysis indicates
+a phase transformation occurring in the wire rod during the aircooling process, characterized by a temperature increase
+leading to the appearance of the bright red coloration. To
+replicate this process in simulations accurately, setting aninternal heat source within the wire rod at the onset of the phase
+transition is crucial. Finite element simulations of the wire rod
+process enable the determination of temperature and coolingrates at different sections of the wire rod as the temperature
+decreases. By analyzing the dynamic Continuous CoolingTransformation curve based on experimental data (section 2.2),
+the temperature and phase transition initiation times can be
+inferred from the cooling rates. Thus, the ﬁnite element
+simulation during the phase transformation period (whichvaries with different roller speeds) necessitates the inclusion of
+an internal heat source, typically positioned at the 5th and 6th
+blowers, with an assigned energy density of 40,000,000 W/m
+3.
+2.3.3 Boundary Condition. In the simulation of the air
+cooling process, the material parameters critical for energy
+exchange need to be deﬁned. These parameters include density,thermal conductivity, and speciﬁc heat capacity. The materialdensity of SWRH82B was consistently set at 7850 kg/m
+3.
+While, the impact of temperature on density was disregarded in
+the air cooling process, the inﬂuence on speciﬁc heat andthermal conductivity must be taken into account. For speciﬁc
+heat, 8 reference points are considered, and for thermal
+conductivity, four reference points are utilized. These referencepoints were selected from the endpoints and inﬂection points of
+the temperature function. Details of the corresponding coordi-
+nate values can be shown in Tables 4and5.
+In this study, the thermal emissivity of SWRH82B material
+was assumed to be 0.55. The energy exchange during air
+cooling primarily involves convective heat transfer between thewire rod and the surrounding air. The convection coefﬁcientbetween the wire rod and the surrounding air is affected by the
+inlet air temperature. In this study, the inlet air temperature was
+set to 25 /C176C. The convection coefﬁcient is related to the air ﬂow
+rate, and the cooling rate of the wire can be changed by
+adjusting the air inﬂow rate at the inlet end. The correlation
+between air ﬂow rate and convective coefﬁcient is described bythe empirical formula ( 2):
+h¼
+a/C2q/C2V/C2Cp/C0/C10:33
+l0:67ðEq 2Þ
+his the convective heat transfer coefﬁcient (W/(m2/C176C));a
+represents the ampliﬁcation coefﬁcient of heat transfer area; q
+is Fluid density (kg/m3); V is ﬂuid velocity(m/s); C pdenotes
+the constant pressure speciﬁc heat capacity of the ﬂuid (J/(kg/C176C));lindicates the dynamic viscosity of the ﬂuid
+(kg/(m /C1s));
+Under atmospheric pressure (0.1 MPa) and 25 /C176C, the
+density of air is 1.18 kg/m
+3,the speciﬁc heat capacity at
+constant pressure is 1003 J/(kg /C176C), and the dynamic viscosity
+is 22 :44/C210/C03kg/(m /C1s)
+Formula ( 1) represents an empirical relationship derived
+from statistical analysis and experimental data correction.
+Further adjustments and corrections may be necessary based onspeciﬁc application and experimental conditions. In practical
+engineering applications, the convective heat transfer coefﬁ-
+cient h can be determined through experimental or theoreticalsimulation methods to ensure the accuracy and reliability ofcalculations.
+To simulate the air cooling process effectively, it is essential
+to preheat the wire rod to align the internal and externaltemperatures of the rod with those during the rolling simulation.
+Starting at an initial temperature of 1000 /C176C, the surface
+temperature decreased to 880 /C176C after 6.2 s.
+Fig. 5 Schematic diagram of air outlet of conveying rollers
+Journal of Materials Engineering and Performance Volume 34(12) June 2025—11215
+--- Page 5 ---
+2.3.4 The Simulation of Opening Angle and Wire Rod
+Spacing of Optiﬂex Device. The shape of the dark red phase
+transition region in Fig. 7indicates that the middle (non-
+overlapping regions) enters the phase transition region initially,
+followed by the two sides (overlapping regions). This suggeststhat the cooling rate in the overlapping regions is faster
+compared to the non-overlapping regions. As the cooling rate
+increases, so does the wind speed, resulting in higher windspeeds and corresponding air volumes on the sides. Thedistribution of air volume is inﬂuenced by the opening angle of
+the Optiﬂex device at the lower part of the bellows. Thedownward tip of the phase transition zone occurs when the
+opening angle of the Optiﬂex device is excessively large,
+leading to a high air volume on both sides and rapid cooling.
+The simulation set the initial speed to 0.7 m/s and a plate
+spacing of 73.90 mm to model the opening angle of the
+Optiﬂex device. Speciﬁcally, a 3 /C176opening angle for the
+Optiﬂex device was used in the simulation of the wire rod platespacing. The blower settings, including the number and
+opening degree, were shown based on Table 6, while the roller
+section and transmission speed were set according to Table 7.
+3. Results and Discussion
+3.1 Dynamic Continuous Cooling Transformation Curves
+The thermal simulation sample was sectioned along one-
+fourth of its radial direction, then polished and treated with a
+4% nitric acid ethanol solution to corrode it. The microstructure
+at various cooling rates is shown in Fig. 8. The phase transition
+temperature of pearlite was determined through the thermal
+expansion method (Ref 29) and metallographic analysis.
+The phase transition start temperature and end temperature
+of SWRH82B were investigated at various cooling rates.
+Table 8shows that the pearlite start phase transition temper-Table 2 When the maximum air volume of the blower is 200000m3/h, the relationship between the air velocity and the
+frequency of the blowers
+Frequency, Hz Air volume, m3/h Air velocity, m/s Air velocity (Remove the roller), m/s
+50 200000 25.21 63.02
+45 180000 22.69 56.7240 160000 20.17 50.41
+35 140000 17.64 44.11
+Table 3 When the maximum air volume of the blower is 168000m3/h, the relationship between the air velocity and the
+frequency of the blower
+Frequency, Hz Air volume, m3/h Air velocity, m/s Air velocity (Remove the roller), m/s
+50 168000 21.17 52.93
+45 151200 19.06 47.64
+40 134400 16.94 42.35
+35 117600 14.82 37.05
+Fig. 6 The arrangement of air-cooled conveyor rollers and blowers
+Fig. 7 Phase change phenomena leading to an anti-red effect on
+wire rods during the air cooling processTable 4 Relationship between speciﬁc heat and
+temperature
+Reference point Temperature, /C176C Speciﬁc heat, J/kg /C176C
+1 249 527.16
+2 299 398.14
+3 349 5694 699 769.83
+5 749 1581.49
+6 799 623.397 899 548.088 1350 547.77
+11216—Volume 34(12) June 2025 Journal of Materials Engineering and Performance
+--- Page 6 ---
+ature ranges from 705.8 to 635.19 /C176C, and the pearlite end
+temperature ranges from 612.85 to 472.1 /C176C when the cooling
+rate varies from 0.5 to 12 /C176C/s. The phase transition time
+decreases from 202 to 13.6 s within this range. It can be seen
+from Fig. 8and Table 9that when the cooling rate was 0.5 /C243
+/C176C/s, the microstructure was sorbite, pearlite and a little
+cementite, and the volume fraction of sorbite increased with the
+cooling rate. When the cooling rate reached 5 /C176C/s, a smallamount of martensite began to appear. When the cooling rate
+reached 10 /C176C/s, the martensite increased signiﬁcantly
+(Fig. 8b), and the sorbite increased with the increase of cooling
+rate. When the cooling rate reached 15 /C176C/s, the microstructure
+was mostly martensite and a small amount of sorbite (Fig. 8c).
+When the cooling rate reached 30 /C176C/s, the microstructure was
+all martensite (Fig. 8d).
+The dynamic CCT curve in Fig. 9indicates that at lower
+cooling rates, the pearlite phase transformation occurs at highertemperatures and over a longer period, resulting in a broader
+phase transformation range. This extended duration allows for
+complete pearlite formation given sufﬁcient time for the phasetransformation of supercooled austenite. However, as the
+cooling rate increases, the time for the phase transformation
+decreases, preventing full pearlite transformation. Excessivelyhigh cooling rates lead to substantial retained austenite contentat the end of pearlite transformation, promoting martensitic
+transformation and increasing martensite content signiﬁcantly.
+3.2 The Results of Finite Element Simulation
+3.2.1 The Simulation of Opening Angle of Optiﬂex
+Device. To simplify the simulation process and explore the
+parameters simultaneously, the section from the laying to theend of 4th blower is initially chosen for simulation. Firstly, theopening angle of the Optiﬂex device for the ﬁrst four blowers
+was determined, followed by simulating the opening angle of
+the Optiﬂex device for the subsequent four blowers. During thesimulation process, the frequency of each blower among the
+ﬁrst four was set at 50 Hz, with an air volume of 200,000 m
+3/h
+per blower. The length of the bafﬂe of the Optiﬂex device was640 mm. At an opening angle of 0 /C176, the lap part had an opening
+width of 325 mm, while the non lap part had an opening width
+of 780 mm. As the opening angle of the Optiﬂex devicebecame positive, the opening width of the overlapping partincreased, while the opening angle of the non-overlapping part
+decreased. Conversely, with a negative opening angle, the
+opening width of the lap part decreased, and the opening angleof the non lap part increased. Substituting actual wind speeds
+into the simulation calculations revealed inconsistencies
+between the experimental results and actual production,necessitating parameter adjustments for production adaptation.
+Following multiple simulation experiments and comparisons
+with actual production data, it was established that multiplyingthe calculated wind speed by a factor of 1.75 yields results
+consistent with actual production.
+3.2.1.1 The Simulation of the Optiﬂex Device Angle for the
+First Four Blowers. The parameters of the ﬁrst four blowers
+and the Optiﬂex device are shown in Table 10. The Optiﬂex
+device undergoes calculations and simulations at four angles:
+0/C176,3/C176,5/C176, and 10 /C176, with results shown in Table 11. Table 12
+illustrates the temperature difference between the lapped and
+non lapped surfaces of the wire rod behind the fourth blower atTable 5 The relationship between thermal conductivity and temperature
+Reference point Temperature, /C176C Thermal conductivity, W/m /C176C
+1 34.85 48.22
+2 715.65 30.14
+3 731.12 25.34
+4 1400 33.58
+Table 6 Blower number and corresponding frequency,
+Hz
+Blower number 1# 2# 3# 4# 5# 6# 7# 8#
+Frequency 50 50 50 50 45 45 45 40
+Table 7 Roller position and transmission speed, m/s
+Conveyor roller 1 2 3 4 5Roller speed 0.60 0.63 0.66 0.69 0.72
+Fig. 8 Microstructure of SWRH82B during dynamic continuous
+cooling transformation: (a) 1 /C176C/s, (b) 10 /C176C/s, (c) 15 /C176C/s, (d)
+30/C176C/s
+Journal of Materials Engineering and Performance Volume 34(12) June 2025—11217
+--- Page 7 ---
+various opening angles of the Optiﬂex device. At Optiﬂex
+angles of 0 /C176,3/C176,5/C176, and 10 /C176, the temperature differences
+between the lapped and non lapped surfaces behind the fourth
+blower were 16, /C04,/C028, and /C080/C176C, respectively. A
+larger opening angle of the Optiﬂex device corresponds to an
+increased cooling rate of the wire rod at the lapped portion. At
+an Optiﬂex angle of 3 /C176, the wire rod’s surface temperature at the
+lapped part was 4 /C176C lower than at the non lapped part after thefourth blower, presenting an ideal outcome. To ensure consis-
+tent temperatures and cooling rates between the lapped and nonlapped sections of the wire rod, an Optiﬂex device angle ofapproximately 3 /C176was recommended.
+3.2.1.2 The Simulation of the Optiﬂex Device’s Opening
+Angle for the Rear Four Blowers. In the simulation process,
+the frequency of the ﬁrst four blowers was set at 50 Hz, each
+with an air volume of 200,000 m
+3/h, which aligned with the
+previously mentioned parameters. The ﬁfth to seventh blowersoperated at a frequency of 45 Hz, with a single blower air
+volume of 151,200 m
+3/h. As for the eighth blower, the
+frequency was 40 Hz, and the air volume remains at 151,200m
+3/h. Initially, the Optiﬂex device on the ﬁrst four blowers was
+set with an opening angle of 3 /C176. Subsequently, for comparative
+analysis, the opening angles of the Optiﬂex devices on the lastfour blowers were set at 3 /C176and 1.5 /C176.
+1) /C2123/C176+3/C176/C213angle mode
+In the simulation, the opening angle of the Optiﬂex device
+for the last four blowers was initially set to 3 /C176, creating a
+/C2123/C176+3/C176/C213angle mode. As shown in Table 13, the simulation
+parameter for the Optiﬂex device’s opening angle was main-
+tained at /C2123/C176+3/C176/C213. This parameter was applied throughout the
+entire air cooling simulation, leading to the results shown in
+Table 14. The simulation resulted that during the cooling
+process of the ﬁrst four blowers, the temperature of the wire rodremained relatively consistent in both the lapped and nonlapped areas. However, as the cooling process progressed to the
+next four blowers, the temperature difference between the
+lapped and non lapped areas gradually increased, with thelapped part exhibiting a higher cooling rate. To achieve a more
+uniform cooling rate across both areas, adjustments were made
+to the opening angle of the Optiﬂex device for the last fourblowers. By reducing the opening angle of the Optiﬂex device,
+the cooling rate of the wire rod in the non lapped area was
+increased.
+2) /C2123/C176+ 1.5/C176/C213angle mode
+In the /C2123/C176+ 1.5/C176/C213angle mode, the opening angle mode of the
+blowers was set to 3 /C176for the ﬁrst four blowers, while the
+Optiﬂex device of the last four blowers had an opening angle of1.5/C176. Table 15illustrates the simulation parameters for the
+/C2123/C176+ 1.5/C176/C213opening angle mode, which were applied in the
+overall air cooling simulation, resulting in the ﬁndings shownin Table 16. Based on the simulation results, it is evident that
+the temperatures of wire rods in both overlapping and non-
+overlapping areas remained largely consistent throughout theentire air cooling process, with a temperature difference ranging
+between 5 and 6 /C176C.Table 8 The start temperature and end temperature of phase transformation of deformed austenite at different cooling
+rates
+Cooling rate, /C176Cs21Start temperature, /C176C End temperature, /C176C Transition time, s
+0.5 705.8 612.85 202
+1 688.27 605.27 833 670.39 580.31 30
+5 668.32 551.33 23
+8 658.63 509.76 18.610 645.22 501.24 14.4
+12 635.19 472.1 13.6
+15 626.82 428.69 13.220 613.36 430.24 9.15
+Table 9 Microstructure and volume fraction of
+undercooled austenite after continuous coolingtransformation of SWRH82B at different cooling rates, %
+Cooling rate, /C176C/s Sorbite Pearlite Martensite
+0.5 81.47 17.68 …
+1 83.07 16.93 …
+3 87.37 12.63 …
+5 89.48 10.09 0.438 90.31 7.28 2.0910 88.01 7.98 4.01
+12 88.19 2.37 9.43
+15 31.97 … 68.03
+20 26.18 … 73.82
+30 …… 100
+Fig. 9 Dynamic CCT diagram of SWRH82B
+11218—Volume 34(12) June 2025 Journal of Materials Engineering and Performance
+--- Page 8 ---
+Evaluating the impact of the Optiﬂex device’s opening angle
+on the cooling process revealed that maintaining a 3 /C176opening
+angle for the ﬁrst four blowers and adjusting the last four
+blowers to 1.5 /C176yielded equivalent cooling rates for both lapped
+and non lapped areas.
+3.2.2 Simulation of Wire Rod Spacing. The spacing of
+coils signiﬁcantly inﬂuences the evenness of the coil temper-
+ature in the overlapping area. The cooling rate of each coil inthis region varies depending on the coil spacing. The study
+conducted simulations based on wire rod models with roller
+conveyor speeds of 0.55, 0.65, 0.70, 0.75, 0.80, and 0.85 m/s(corresponding to the disc spacing shown in Table 17)t o
+analyze the temperature variations after the second, fourth,sixth, and eighth blowers in the overlapping area.
+The temperature distribution of the wire rod at the rear of the
+eighth blower is shown in Fig. 10with different initial roller
+conveyor speed. Since, the speed of the roller conveyor is
+directly linked to the density of the wire rod, the conﬁguration
+with a roller conveyor speed of 0.55 m/s demonstrated thehighest density among all tested models, with 12 wire rodsconcentrated in the overlapping region. The surface tempera-
+ture proﬁle of the wire rod after the fourth blower is shown in
+Fig.11(a). Examination of the Fig. 11indicates that wire rod
+No. 6 consistently exhibited the highest surface temperature
+after each blower, whereas wire rod No. 3 consistently
+displayed the lowest temperature. Wire rod No. 6 waspositioned in the densest area of the wire rods, leading to its
+elevated temperature. This increased temperature of wire rod
+No. 6 was attributed to its location obstructed by wire rods No.7 and No. 8 below, impeding direct cooling from the lower air
+ﬂow and resulting in the highest temperature among all wire
+rods.
+The maximum surface temperature difference of the wire
+rod model under varying roller conveyor speeds is illustrated in
+Table 13 Simulation parameters of Optiﬂex device when the opening angle is /C2123/C176+3/C176/C213
+Blower code 5#/C247# 8#
+Wire rod position Lap Non-lap Lap Non-lap
+Opening width, mm 358.49 713.01 358.49 713.01
+Proportion, % 25 50 25 50
+Air volume, (m3/h) 37905.21 75389.59 33693.51 67012.97
+Nozzle area, m20.57 1.36 0.57 1.36
+Wind velocity, m/s 18.53 15.36 16.47 13.65
+Corrected wind velocity, m/s 32.44 26.88 28.83 23.89Table 12 The temperature difference between the
+surface of the lap joint and the non lap joint of the 4#blower at different opening angles of the Optiﬂex device,
+/C176C
+Angle of optitﬂex, /C176 0 351 0
+Temperature difference 16 /C04 /C028 /C080Table 11 Surface temperature of wire rod at the end of blowers, /C176C
+Angle of optitﬂex, /C176 035 1 0
+Position Lap Non lap Lap Non lap lap Non lap Lap Non lap
+Loop laying 880 877 883 881 890 880 890 873
+1# 778 769 772 770 771 779 765 7742# 738 730 735 733 729 748 719 741
+3# 703 692 698 699 683 700 661 714
+4# 651 635 644 648 623 651 595 675Table 10 Simulation parameters of the ﬁrst four blowers and Optiﬂex device
+Angle of optitﬂex, /C176 03 5 1 0
+Position Lap Non lap Lap Non lap Lap Non lap Lap Non lap
+Opening width, mm 325 780 358.49 713.01 380.78 668.44 436.13 557.73
+Proportion, % 23 54 25 50 27 47 31 39
+Air volume, m3/h 45454.55 109090.91 50139.16 99721.68 53255.90 93488.20 60997.87 78004.25
+Outlet area, m20.57 1.36 0.57 1.36 0.57 1.36 0.57 1.36
+Wind velocity, m/s 22.23 22.23 24.52 20.32 26.04 19.05 29.82 15.89
+Corrected wind velocity, m/s 38.89 38.89 42.90 35.55 45.57 33.33 52.19 27.81
+Journal of Materials Engineering and Performance Volume 34(12) June 2025—11219
+--- Page 9 ---
+the curve shown in Fig. 12. The trend observed in the curve
+indicates that as the roller conveyor speed increased, the
+temperature difference on the wire rod’s surface initiallydecreased before rising again. Speciﬁcally, the surface temper-
+ature difference of the wire rod reached its minimum between
+roller conveyor speeds of 0.70 and 0.75 m/s. Consequently, inpractical production settings, the initial roller conveyor speedcan be maintained between 0.70 and 0.75 m/s, leading to a
+corresponding wire rod spacing ranging from 73.90 to 79.18
+mm.3.3 Analysis of the Causes of Abnormal Microstructure
+Figure 13illustrates the wind speed and temperature
+distribution during the air cooling process at the lap joint when
+the roller speed was set to 0.75 m/s. In Fig. 13(a), the wind
+speed ranged from 20 to 52 m/s, providing a clear visualizationof the airﬂow dynamics. The air movement can be classiﬁed as
+viscous ﬂuid ﬂow, inﬂuenced by viscosity effects. Close to the
+cylinder wall, the ﬂuid experiences deceleration, whereasfarther from the wall, acceleration occurs due to the narrowingTable 14 Comparison of surface temperature and cooling rate of wire rod when the opening angle of Optiﬂex device is/C2123/C176+3/C176/C213
+Wire rod positionLap Non- lap
+Surface temperature, /C176C Cooling rate, /C176C/s Surface temperature, /C176C Coo ling rate, /C176C/s
+Loop laying 885 887
+1# 772 8.46 772 8.62
+2# 735 7.28 734 7.43
+3# 699 6.76 699 6.834# 647 6.91 647 6.97
+5# 649 5.75 652 5.72
+6# 650 4.93 656 4.857# 610 5.09 619 4.968# 573 5.17 585 5.01
+Table 15 Simulation parameters of Optiﬂex device when the opening angle is /C2123/C176+ 1.5 /C176/C213
+Wire rod position Lap Non lap Lap Non lap
+Opening width, mm 341.75 746.49 341.75 746.49
+Proportion 0.24 0.52 0.24 0.52Air volume, m
+3/h 36135.03 78929.94 32120.03 70159.95
+Nozzle area, m20.57 1.36 0.57 1.36
+Wind velocity, m/s 17.67 16.08 15.71 14.29Corrected wind velocity, m/s 30.92 28.14 27.48 25.01
+Table 16 Comparison of surface temperature and cooling rate of wire rod when the opening angle of Optiﬂex device is
+/C2123/C176+ 1.5 /C176/C213
+PositionLap Non lap
+Surface temperature, /C176C Cooling rate, /C176C/s Surface temperature, /C176C Cooling rate, /C176C/s
+Loop laying 887 875
+1# 774 8.32 766 9.07
+2# 734 7.33 730 7.62
+3# 693 6.97 693 7.054# 636 7.23 641 7.145# 640 5.97 645 5.89
+6# 643 5.08 648 5.01
+7# 604 5.21 609 5.158# 569 5.24 575 5.17
+Table 17 The wire rod ring spacing corresponding to different roller speed
+Roller speed, m/s 0.55 0.65 0.70 0.75 0.80 0.85Wire rod ring spacing, mm 58.06 68.62 73.90 79.18 84.71 89.74
+11220—Volume 34(12) June 2025 Journal of Materials Engineering and Performance
+--- Page 10 ---
+ﬂow path. Molecules’ interaction results in velocity gradient,
+and viscous forces convert mechanical energy into internal
+energy, leading to an irreversible change in the ﬂuid state post-cylinder passage, resulting in an asymmetric ﬂow distribution
+around the cylinder.From Fig. 13, it is evident that as the wind passed between
+the two wire rods, its speed increased. A smaller distance
+between the wire rods corresponded to a higher speed; Forexample, in Fig. 13(a), the initial wind speed measured 28.47
+m/s. Moving upwards, wire rods No. 5, 6, 7, and 8 experienced
+Fig. 10 The temperature cloud diagram of wire rod after the 8th blower with different initial speed of roller: (a) 0.55 m/s, (b) 0.65 m/s, (c)
+0.7 m/s, (d) 0.75 m/s, (e) 0.8 m/s, (f) 0.85 m/s
+Fig. 11 The surface temperature of wire rod at lap joint: (a) 0.55 m/s, (b) 0.65 m/s, (c) 0.7 m/s, (d) 0.75 m/s, (e) 0.8 m/s, (f) 0.85 m/s
+Journal of Materials Engineering and Performance Volume 34(12) June 2025—11221
+--- Page 11 ---
+acceleration, especially noticeable on the surfaces adjacent to
+the wire rods. Some regions reached a wind speed of 28.47 m/s,with the accelerated air ﬂowing towards the upper wire rod,leading to a faster cooling rate for the upper wire rod compared
+to the lower one. This acceleration phenomenon explains the
+lower temperature of the upper wire rod compared to the lowerone. Wire rod No. 4, obstructed by wire rod No. 5, exhibits the
+highest temperature and the slowest cooling rate among all wire
+rods, facilitating the formation of network cementite inindustrial settings. This observation is supported by
+Fig. 13(b), where the temperature ﬁeld above wire rods No.
+3, 4, and 5 was higher compared to other regions, resulting in aslower cooling rate for this speciﬁc section. Thus, wire rod No.
+4 maintained the highest temperature among all wire rods,
+whereas wire rod No. 3, adjacent to No. 4, exhibits the lowesttemperature.
+3.4 Process Optimization
+The temperature range for grain boundary cementite pre-
+cipitation in SWRH82B steel is 731-783 /C176C. Analysis of the
+continuous cooling transformation diagram indicated that acooling rate exceeding 10 /C176C/s leads to minimization of grain
+boundary cementite precipitation. Moreover, achieving a cool-
+ing rate above 8 /C176C/s before the phase transformation resulted
+in a sorbite rate exceeding 90%. To increase the wire rod’s
+cooling rate to 10 /C176C/s, adjustments must be made to the airvolume of 2ed, 3rd, and 4th blowers possibly necessitating the
+installation of larger frequency blowers. Due to the adverseimpact of speeds exceeding 0.1 m/s on coil shape, adjustmentswere made to the roller conveyor speeds: 0.65 m/s for the two-
+roller conveyor, 0.75 m/s for the three-roller conveyor, and
+0.7 m/s for the four-roller conveyor. Air volumes for theblowers were set as follows: 150,000 m
+3/h for blower 1st,
+280,000 m3/h for the 2ed, 3rd, and 4th blowers, and
+168,000 m3/h for the 5th, 6th, 7th, and 8th blowers. Analysis
+based on the phase transformation temperatures shown in
+Table 8reveals that, in a simulation without a heating source,
+the phase transformation temperature at 35.3 s is 658.63 /C176C
+with a cooling rate of 8 /C176C/s, indicating the heat source for
+phase transformation simulation was at 35.3 s.
+Figure 14illustrates the temperature variations of the core
+and surface of the wire rod in both the lap and non lap areasduring the laying process at 880 /C176C. The temperature difference
+between the core and surface was inﬂuenced by the wind speed.
+Speciﬁcally, the wind speed between the laying position and thevicinity of the ﬁrst blower (during this stage, no actual blower
+exists, but in FLUENT, the convective heat transfer coefﬁcient
+is linked to wind speed, so a nominal wind speed is utilized tofacilitate wire rod cooling) was 12.17 m/s. Throughout this
+phase, the temperature variance between the core and surface
+diminished gradually. Subsequently, the wind speed of the ﬁrstblower increased to 32.18 m/s. This abrupt rise in wind speedresulted in a rapid surface temperature decline, while the core
+temperature remained relatively unchanged due to the slower
+cooling process relying on internal heat conduction within thematerial. Consequently, the temperature difference between the
+core and surface of the wire rod increased during the ﬁrst
+blower operation. The wind speed of the second blowerescalated to 60.06 m/s. Comparatively, during the second
+blower phase, the temperature difference between the core and
+surface of the wire rod continued to widen. The wind speeds ofthe third and fourth blowers mirror that of the second blower.
+As the wire rod undergoes constant-speed air cooling, the
+temperature gap between the core and surface graduallydiminished. Furthermore, in subsequent cooling stages withreduced wind speed, this temperature difference further
+decreased. Simulation outcomes indicated that the cooling rate
+of the lap joint pre-phase transition reached 7.79 /C176C /s, while
+that of the non lap joint reached 7.95 /C176C /s.
+3.5 Experimental Veriﬁcation
+The slow cooling rate is one of the signiﬁcant reasons for the
+formation of network cementite. The thermal simulation
+Fig. 13 The temperature and velocity distribution nephogram of wire rods: (a) velocity nephogram, (b) temperature nephogram, (c) air ﬂow
+diagram
+Fig. 12 Variation of surface temperature difference of wire rod
+model under different initial roller speed
+11222—Volume 34(12) June 2025 Journal of Materials Engineering and Performance
+--- Page 12 ---
+experiment was conducted based on the ﬁnite element model
+shown in Section 3.4and integrated with the steel plant’s
+production line. Figure 15depicts the core microstructure of
+SWRH82B. The thermal simulation sample showed an average
+sorbite rate of around 92%, with a sorbite lamellar spacing
+measuring 122 nm. Furthermore, the network cementite wasless than 1, and the core martensite was less than 0.5. The
+ﬁndings highlight a substantial improvement in the cooling
+model shown in section 3.4compared to the original process.
+By optimizing the design of the air cooling system, the cooling
+rate prior to the phase transition has been enhanced, leading to
+effective temperature control during the phase transformationprocess. Consequently, the occurrence of phase change
+rewarming has been notably minimized.
+4. Conclusions
+In this paper, the microstructure transformation of
+SWRH82B steel was studied, and the controlled coolingprocess of wire rod was optimized by numerical simulation to
+make the distribution of temperature as well as microstructure
+more uniform during the cooling process.
+The key ﬁndings are as follows:(1) Setting the opening angle of the Optiﬂex device at 3 /C176
+for the ﬁrst four blowers and 1.5 /C176for the subsequent
+four blowers resulted in nearly identical surface temper-atures for wire rod sections within and outside the lap
+area during air cooling, with errors well within accept-
+able limits.
+(2) With the increase of the initial roller speed, the tempera-
+ture difference of the coil surface in the lap area de-
+creased ﬁrst and then increased. The temperaturedifference was minimized when the initial roller con-
+veyor speed ranged from 0.70 to 0.75 m/s, with corre-
+sponding wire rod spacing between 73.90 and 79.18mm to ensure a more uniform cooling rate within the
+lap area.
+(3) In optimizing the 880 /C176C laying process, adjusting the
+roller speed and increasing the air volume provided byblowers 2-4 to 280,000 m
+3/h effectively improved the
+content of sorbite and reduced the network cementite.
+After thermal simulation experiments, a sorbite rate of92% was achieved, with network cementite below grade
+1 and core martensite below grade 0.5.
+Fig. 14 The temperature of the center and surface of the wire rod in the lapped and non lapped areas during laying at 880 /C176C: (a) the position
+of the lapped area, (b) the position of the non lapped area
+Fig. 15 The microstructure of SWRH82B: (a) optical microscope microstructure, (b) SEM microstructure
+Journal of Materials Engineering and Performance Volume 34(12) June 2025—11223
+--- Page 13 ---
+Author Contributions
+Writing—original were done by F.C., Review and editing were
+done by T.D, Z.T. D.C., Conceptualization was done by W.T, M.Z.
+All authors have read and agreed to the published version of themanuscript.
+Funding
+The research was supported by the National Natural Science
+Foundation of China (Grant No. 51874088).
+Data Availability
+The raw/processed data required to reproduce these ﬁndings
+cannot be shared at this time as the data also forms part of an
+ongoing study.
+Conflicts of interest
+The authors declare no conﬂict of interest.
+References
+1. M. Wang, Z.Q. Sun, and L.F. Li, Research of Martensite Bands in the
+Core of 82B Wires, Adv. Mat. Res. , 2014, 915–916 , p 619–622. h
+ttps://doi.org/10.4028/www.scientific.net/AMR.915-916.619
+2. J. Zeng and W.Q. Chen, Effect of Secondary Cooling Conditions on
+Solidiﬁcation Structure and Central Macrosegregation in Continuously
+Cast High-Carbon Rectangular Billet, High Temp. Mater. Processes
+(London) , 2015, 34(6), p 577–583. https://doi.org/10.1515/htmp-2014-
+0059
+3. Y. Ji, H.Y. Tang, P. Lan, C.J. Shang, and J.Q. Zhang, Effect of
+Dendritic Morphology and Central Segregation of Billet Castings onthe Microstructure and Mechanical Property of Hot-Rolled Wire Rods,Steel Res. Int. , 2017, 88(8), p 14. https://doi.org/10.1002/srin.201600
+426
+4. A.M. Elwazri, P. Wanjara, and S. Yue, The Effect of Microstructural
+Characteristics of Pearlite on the Mechanical Properties of Hypereu-tectoid Steel, Mater. Sci. Eng. A-Struct. Mater. Prop. Microstruct.
+Process. , 2005, 404(1–2), p 91–98. https://doi.org/10.1016/j.msea.20
+05.05.051
+5. J.M. Hyzak and I.M. Bernstein, The role of microstructure on the
+strength and toughness of fully pearlitic steels, Metall. Trans. A , 1976,
+7(8), p 1217–1224. https://doi.org/10.1007/BF02656606
+6. C. Borchers and R. Kirchheim, Cold-Drawn Pearlitic Steel Wires,
+Prog. Mater. Sci. , 2016, 82, p 405–444. https://doi.org/10.1016/j.pma
+tsci.2016.06.001
+7. X. Zhang, N. Hansen, A. Godfrey, and X. Huang, Dislocation-Based
+Plasticity and Strengthening Mechanisms in sub-20 nm Lamellar
+Structures in Pearlitic Steel Wire, Acta Mater. , 2016, 114, p 176–
+183. https://doi.org/10.1016/j.actamat.2016.04.040
+8. Y.J. Li, P. Choi, C. Borchers, S. Westerkamp, S. Goto, D. Raabe, and
+R. Kirchheim, Atomic-Scale Mechanisms of Deformation-InducedCementite Decomposition in Pearlite, Acta Mater. , 2011, 59(10), p
+3965–3977. https://doi.org/10.1016/j.actamat.2011.03.022
+9. F. Fang, J.-H. Jiang, S.-Y. Tan, A.-B. Ma, and J.-Q. Jiang, Character-
+istics of A Fast Low-Temperature Zinc Phosphating Coating Acceler-ated by an ECO-Friendly Hydroxylamine Sulfate, Surf. Coat. Technol. ,
+2010, 204(15), p 2381–2385. https://doi.org/10.1016/j.surfcoat.2010.
+01.005
+10. F. Fang, H. Xian-jun, S.-h Chen, Z.-h Xie, and J.-q Jiang, Revealing
+Microstructural and Mechanical Characteristics of Cold-Drawn Pear-litic Steel Wires Undergoing Simulated Galvanization Treatment,
+Mater. Sci. Eng. A , 2012, 547, p 51–54. https://doi.org/10.1016/j.msea.
+2012.03.07511. K. Yamada, Y. Hashimoto, K. Ojima, and T. Asakura, A Foaming Bath
+Method for Direct Heat Treatment System for Wire Rod Manufacture,Trans. Iron Steel Institute Jpn. , 1987, 27(1), p 42–50. https://doi.org/
+10.2355/isijinternational1966.27.42
+12. J. Li, L. Wang, R. Wang, Y. Zhang, B. Wang, and J. Zhang, Controlling
+the Optimal Phase Transition Temperature of Wires during Quenchingin Salt Bath through Process Parameters, Mater. Today Commun. ,
+2024, 40, p 109379. https://doi.org/10.1016/j.mtcomm.2024.109379
+13. X. Liu, H. Ma, and F. Fan, Modiﬁed Johnson-Cook Model of
+SWRH82B Steel under Different Manufacturing and Cold-DrawingConditions, J. Constr. Steel Res. , 2021,
+186, 106894. https://doi.org/10.
+1016/j.jcsr.2021.106894
+14. S. Phadke, P. Pauskar, and R. Shivpuri, Computational Modeling of
+Phase Transformations and Mechanical Properties during the Coolingof Hot Rolled Rod, J. Mater. Process. Technol. , 2004, 150(1–2), p 107–
+115. https://doi.org/10.1016/j.jmatprotec.2004.01.027
+15. M. Kazeminezhad and A. Karimi Taheri, The Effect of Controlled
+Cooling After Hot Rolling on the Mechanical Properties of a
+Commercial High Carbon Steel Wire Rod, Mater. Des. , 2003, 24(6),
+p 415–421. https://doi.org/10.1016/S0261-3069(03)00095-5
+16. L.L. Teoh, Thermo-Mechanical Processing and Microstructure of
+Microalloyed Steel Bar and Wire Rod Products, J. Mater. Process.
+Technol. , 1995, 48(1–4), p 475–481. https://doi.org/10.1016/0924-01
+36(94)01685-T
+17. A.R. Marder and B.L. Bramﬁtt, Effect of Continuous Cooling on the
+Morphology and Kinetics of Pearlite, Metall. Trans. A , 1975, 6(11), p
+2009–2014. https://doi.org/10.1007/BF03161825
+18. J. Szala and D. Kuc, Determination of Pearlite Morphology in High-
+Carbon Hot Rolled Steel, Arch. Metall. Mater. , 2017, 62(1), p 303–308.
+https://doi.org/10.1515/amm-2017-0045
+19. H. Wei, Y.L. Chen, L. Su, and T. Di, Effect of Cooling Rate and
+Isothermal Temperature on the Phase Transformation and Microstruc-ture Evolution in SWRH82B High-Carbon Steel, Mater. Res. Express ,
+2018, 5(8), p 10. https://doi.org/10.1088/2053-1591/aad269
+20. H. Rastegari, A. Kermanpur, and A. Najaﬁzadeh, Investigating the
+Effects of Short Time Austenitizing and Cooling Rate on PearliticMicrostructure and Mechanical Properties of a Hot Rolled Plain
+Eutectoid Carbon Steel, Mater. Des. , 2015, 67, p 217–223. https://doi.
+org/10.1016/j.matdes.2014.11.038
+21. C. Cheng, W. Wan, Z. Liu, Z. Li, and F. Wei, Application and Study on
+Heat Transfer Model for Continuous 82B Billet Casting, Advances in
+Computer Science, Intelligent System and Environment . D. Jin, S. Lin
+Ed., Springer Berlin Heidelberg, Berlin, Heidelberg, 2011, p 499–504.https://doi.org/10.1007/978-3-642-23753-9_80
+22. O. Kwon, A Technology for the Prediction and Control of Microstruc-
+tural Changes and Mechanical Properties in Steel, ISIJ Int. , 1992,
+32(3), p 350–358. https://doi.org/10.2355/isijinternational.32.350
+23. A.H. Nobari and S. Serajzadeh, Modeling of Heat Transfer during
+Controlled Cooling in Hot Rod Rolling of Carbon Steels, Appl. Therm.
+Eng., 2011, 31(4), p 487–492. https://doi.org/10.1016/j.applthermale
+ng.2010.10.003
+24. J.K. Hwang, Effect of Ring Conﬁguration on the Deviation in Cooling
+Rate and Mechanical Properties of a Wire Rod during the StelmorCooling Process, J. Mater. Eng. Perform. , 2020, 29(3), p 1732–1740. h
+ttps://doi.org/10.1007/s11665-020-04694-0
+25. L. Hong, B. Wang, S. Feng, Z. Yang, Y. Yaowei, W. Peng, and J.
+Zhang, A Three-Dimensional Mathematical Model to Predict Air-Cooling Flow and Temperature Distribution of Wire Loops in the
+Stelmor Air-Cooling System, Appl. Therm. Eng. , 2017, 116, p 766–
+776. https://doi.org/10.1016/j.applthermaleng.2017.02.025
+26. I. Jain, S. Lenka, S.K. Ajmani, and S. Kundu, An Approach to Heat
+Transfer Analysis of Wire Loops Over the Stelmor Conveyor to Predictthe Microstructural and Mechanical Attributes of Steel Rods, J. Therm.
+Sci. Eng. Appl. , 2016 https://doi.org/10.1115/1.4032709
+27. M. Piwowarczyk, N. Wolanska, M. Pietrzyk, L. Rauch, R. Kuziak, and
+W. Zalecki, Phase Transformation Model for Adjusting the CoolingConditions in Stelmor Process to Obtain the Targeted Structure ofThermomechanically Rolled Wire Rod used for Fastener Production,Metall. Res. Technol. , 2022, 119(5), p 12. https://doi.org/10.1051/meta
+l/2022071
+28. Y. Wan-Hua, S.-H. Chen, Y.-H. Kuang, and K.-C. Cao, Development
+and Application of Online Stelmor Controlled Cooling System, Appl.
+Therm. Eng. , 2009, 29(14–15), p 2949–2953. https://doi.org/10.1016/
+j.applthermaleng.2009.03.012
+11224—Volume 34(12) June 2025 Journal of Materials Engineering and Performance
+--- Page 14 ---
+29. S. Choi, Model for Estimation of Transformation Kinetics from the
+Dilatation Data during a Cooling of Hypoeutectoid Steels, Mater. Sci.
+Eng. A , 2003, 363(1–2), p 72–80. https://doi.org/10.1016/S0921-509
+3(03)00587-2
+Publisher’s Note Springer Nature remains neutral with regard to
+jurisdictional claims in published maps and institutional afﬁlia-tions.Springer Nature or its licensor (e.g. a society or other partner) holds
+exclusive rights to this article under a publishing agreement with theauthor(s) or other rightsholder(s); author self-archiving of the acceptedmanuscript version of this article is solely governed by the terms ofsuch publishing agreement and applicable law.
+Journal of Materials Engineering and Performance Volume 34(12) June 2025—11225

@@ -1,7 +1,7 @@
-xs_hc0:0.933405
-xs_hc1:1.075936
+xs_hc0:1.003390
+xs_hc1:1.081786
 view_factor:1.000000
-xs_tauf:0.802491
-xs_taup:0.800000
-xs_dqp:0.994241
-xs_dqf:1.123162
+xs_tauf:0.927577
+xs_taup:1.193628
+xs_dqp:1.179437
+xs_dqf:0.841107

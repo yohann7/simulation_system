@@ -13,13 +13,13 @@ import calculate_all_sim_T as calc
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 PARAM_BOUNDS = {
-    'xs_hc0': (0.8, 1.5),
-    'xs_hc1': (0.8, 1.5),
-    'view_factor': (0.5, 1.0),
-    'xs_tauf': (0.8, 1.5),
-    'xs_taup': (0.8, 1.5),
-    'xs_dqp': (0.8, 1.5),
-    'xs_dqf': (0.8, 1.5),
+    'xs_hc0': (0.8, 1.2),
+    'xs_hc1': (0.8, 1.2),
+    'view_factor': (0.8, 1.0),
+    'xs_tauf': (0.8, 1.2),
+    'xs_taup': (0.8, 1.2),
+    'xs_dqp': (0.8, 1.2),
+    'xs_dqf': (0.8, 1.2),
 }
 
 PARAM_NAMES = list(PARAM_BOUNDS.keys())
@@ -172,7 +172,7 @@ def calculate_mae_and_similarity(real_data1, sim_data1, real_data0, sim_data0):
     similarity = 1.0 / (1.0 + total_mae)
     return total_mae, similarity
 
-def calculate_importance_for_real_point(X, Y, peak_weight_ratio=0.7, lambda_smooth=0.8):
+def calculate_importance_for_real_point(X, Y, peak_weight_ratio=0.5, lambda_smooth=0.9):
     """
     高度可调的权重计算算法。
     
@@ -438,8 +438,8 @@ def main():
     metric_mode = "WMAE"  # 可选: "MAE" 或 "WMAE"
 
     # PSO 超参数
-    swarm_size = 50  #粒子数量
-    max_iter = 50   #迭代轮数
+    swarm_size = 100  #粒子数量
+    max_iter = 200   #迭代轮数
     early_stop_patience = 10  # 连续多少轮未更新全局最优则提前停止
     inertia_w = 0.7     #惯性权重
     cognitive_c1 = 1.7  #自身权重
