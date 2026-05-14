@@ -6,7 +6,9 @@
       "Bash(python -c \"import PyPDF2; r=PyPDF2.PdfReader\\(r'D:/My EndNote Library.Data/PDF/3605013128/s11665-024-09898-2.pdf'\\); print\\(len\\(r.pages\\)\\); [print\\(r.pages[i].extract_text\\(\\)[:3000]\\) for i in range\\(min\\(3, len\\(r.pages\\)\\)\\)]\")",
       "Bash(pip install *)",
       "Bash(python -c \"import PyPDF2; r=PyPDF2.PdfReader\\(r'D:/My EndNote Library.Data/PDF/3605013128/s11665-024-09898-2.pdf'\\); print\\('Pages:', len\\(r.pages\\)\\); [print\\(f'--- Page {i+1} ---', r.pages[i].extract_text\\(\\)[:4000]\\) for i in range\\(min\\(8, len\\(r.pages\\)\\)\\)]\")",
-      "Bash(python *)"
+      "Bash(python *)",
+      "Bash(D:/Anaconda3/envs/stelmor/python.exe -c ' *)",
+      "Bash(npx skills *)"
     ]
   }
 }

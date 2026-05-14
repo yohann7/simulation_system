@@ -285,6 +285,12 @@ class SimulationState:
         self.history_h_1 = [[] for _ in range(3)]
         self.pearlite_0 = [[] for _ in range(n)]
         self.pearlite_1 = [[] for _ in range(n)]
+        self.ferrite_0 = [[] for _ in range(n)]
+        self.ferrite_1 = [[] for _ in range(n)]
+        self.ferrite_final_0 = np.zeros(n)
+        self.ferrite_final_1 = np.zeros(n)
+        self.ferrite_recorded_0 = np.zeros(n, dtype=bool)
+        self.ferrite_recorded_1 = np.zeros(n, dtype=bool)
 
     def reset(self):
         """重置仿真状态，保留 N/dt 等结构参数。"""
@@ -537,6 +543,15 @@ def calculate_phase_change_heat(state, T_vec, time, position):
         T_c = T_k - 273.15  # JMAK 和潜热必须使用摄氏度
         dq = 0
 
+        # --- 记录铁素体最终转变量（穿过 A1 进入珠光体区时捕获）---
+        if T_c <= basic_info.A1:
+            if position == 0 and not state.ferrite_recorded_0[i]:
+                state.ferrite_final_0[i] = f_p[i]
+                state.ferrite_recorded_0[i] = True
+            elif position == 1 and not state.ferrite_recorded_1[i]:
+                state.ferrite_final_1[i] = f_p[i]
+                state.ferrite_recorded_1[i] = True
+
         # --- 超过 Acm：无相变 ---
         if T_c > basic_info.Acm:
             pass
@@ -711,9 +726,18 @@ def _record_history(state, current_time, T_field_0, T_field_1, Q_0, Q_1, f_p0, f
         row.append(val)
     for row, val in zip(state.history_Q_1, Q_1):
         row.append(val)
-    for row, val in zip(state.pearlite_0, f_p0):
+    # 铁素体和珠光体分别记录
+    f_ferrite_0 = np.where(state.ferrite_recorded_0, state.ferrite_final_0, f_p0)
+    f_pearlite_0 = np.maximum(0, f_p0 - f_ferrite_0)
+    f_ferrite_1 = np.where(state.ferrite_recorded_1, state.ferrite_final_1, f_p1)
+    f_pearlite_1 = np.maximum(0, f_p1 - f_ferrite_1)
+    for row, val in zip(state.ferrite_0, f_ferrite_0):
         row.append(val)
-    for row, val in zip(state.pearlite_1, f_p1):
+    for row, val in zip(state.pearlite_0, f_pearlite_0):
+        row.append(val)
+    for row, val in zip(state.ferrite_1, f_ferrite_1):
+        row.append(val)
+    for row, val in zip(state.pearlite_1, f_pearlite_1):
         row.append(val)
     state.history_h_0[0].append(h_r0)
     state.history_h_0[1].append(h_c0)
@@ -1103,23 +1127,39 @@ def plot_Q_results(state, roll_start_time):
 
 
 def plot_trans_stage(state, roll_start_time):
-    """绘制相变转变量变化曲线。"""
+    """绘制相变转变量曲线 —— 铁素体与珠光体分别表示。"""
     big_times, small_times = _get_segment_times(roll_start_time)
 
-    plt.figure(figsize=(12, 6))
-    ax = plt.gca()
-    plt.plot(state.history_time, state.pearlite_0[-1], label='Surface trans Non-Overlap')
-    plt.plot(state.history_time, state.pearlite_1[-1], label='Surface trans Overlap')
-    plt.plot(state.history_time, state.pearlite_0[0], label='Center trans Non-Overlap')
-    plt.plot(state.history_time, state.pearlite_1[0], label='Center trans Overlap')
+    fig, (ax_f, ax_p) = plt.subplots(1, 2, figsize=(16, 6))
 
-    _add_segment_background(ax, big_times)
-    plt.xlabel('Time (s)')
-    plt.ylabel('X')
-    plt.title('Phase Transformation During Cooling')
-    plt.legend()
-    plt.grid()
-    _add_segment_lines(ax, big_times, small_times)
+    # 铁素体子图
+    ax_f.plot(state.history_time, state.ferrite_0[-1], label='Surface Non-Overlap')
+    ax_f.plot(state.history_time, state.ferrite_1[-1], label='Surface Overlap')
+    ax_f.plot(state.history_time, state.ferrite_0[0], label='Center Non-Overlap')
+    ax_f.plot(state.history_time, state.ferrite_1[0], label='Center Overlap')
+    _add_segment_background(ax_f, big_times)
+    ax_f.set_xlabel('Time (s)')
+    ax_f.set_ylabel('Ferrite Fraction')
+    ax_f.set_title('Ferrite Transformation')
+    ax_f.legend(fontsize=8)
+    ax_f.grid()
+    _add_segment_lines(ax_f, big_times, small_times)
+
+    # 珠光体子图
+    ax_p.plot(state.history_time, state.pearlite_0[-1], label='Surface Non-Overlap')
+    ax_p.plot(state.history_time, state.pearlite_1[-1], label='Surface Overlap')
+    ax_p.plot(state.history_time, state.pearlite_0[0], label='Center Non-Overlap')
+    ax_p.plot(state.history_time, state.pearlite_1[0], label='Center Overlap')
+    _add_segment_background(ax_p, big_times)
+    ax_p.set_xlabel('Time (s)')
+    ax_p.set_ylabel('Pearlite Fraction')
+    ax_p.set_title('Pearlite Transformation')
+    ax_p.legend(fontsize=8)
+    ax_p.grid()
+    _add_segment_lines(ax_p, big_times, small_times)
+
+    fig.suptitle('Phase Transformation During Cooling', fontsize=13)
+    fig.tight_layout()
 
 
 def plot_measure_point_T_results(state, roll_start_time, metric_mode="MAE"):

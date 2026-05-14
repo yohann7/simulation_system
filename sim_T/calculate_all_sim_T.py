@@ -299,15 +299,16 @@ def run_single_simulation(row, tem1=850, tem0=830, dt_override=None, param_dict=
 
 
 def _worker_simulate(item):
-    """多进程 worker: item = (idx, row_dict, param_dict, dt_override)。
+    """多进程 worker: item = (idx, row_dict, param_dict, dt_override, return_state)。
 
-    返回: (idx, sim_cols, error)
+    返回: (idx, sim_cols, state_data | None, error)
+        state_data 为 dict 或 None，包含相变数据供约束评价使用。
     """
-    idx, row_dict, param_dict, dt_override = item
+    idx, row_dict, param_dict, dt_override, return_state = item
     try:
         row = pd.Series(row_dict)
         tem1, tem0, _ = _get_initial_temperature_from_row(row)
-        history_time, history_t0, history_t1, _state, _roll_rt = run_single_simulation(
+        history_time, history_t0, history_t1, state, _roll_rt = run_single_simulation(
             row, tem1=tem1, tem0=tem0,
             dt_override=dt_override, param_dict=param_dict,
         )
@@ -318,12 +319,32 @@ def _worker_simulate(item):
         for t, t1 in zip(history_time, history_t1):
             sim_cols[_format_time_col(t, "(1)")] = float(t1)
 
-        return idx, sim_cols, None
+        # 提取相变数据供约束评价（避免跨进程传输完整 SimulationState）
+        state_data = None
+        if return_state:
+            # 温度已重采样到整数秒，但相变数据仍为仿真步长（dt=0.01s），
+            # 需统一重采样以对齐数组维度。
+            int_time = np.array(history_time, dtype=np.float64)
+            full_time = np.array(state.history_time, dtype=np.float64)
+            pearl_surf = np.array(state.pearlite_0[-1], dtype=np.float64)
+            ferrite_surf = np.array(state.ferrite_0[-1], dtype=np.float64)
+            state_data = {
+                "time": int_time,
+                "T0": np.array(history_t0, dtype=np.float64),
+                "T1": np.array(history_t1, dtype=np.float64),
+                "pearlite_0_surface": np.interp(int_time, full_time, pearl_surf),
+                "ferrite_0_surface": np.interp(int_time, full_time, ferrite_surf),
+                "ferrite_final_0": np.array(state.ferrite_final_0, dtype=np.float64),
+                "f_total_0": np.array(state.f_total_0, dtype=np.float64),
+            }
+
+        return idx, sim_cols, state_data, None
     except Exception as e:
-        return idx, None, str(e)
+        return idx, None, None, str(e)
 
 
-def run_all_simulations(process_data, n_workers=0, dt_override=None, params_list=None):
+def run_all_simulations(process_data, n_workers=0, dt_override=None, params_list=None,
+                        return_states=False):
     """逐条仿真并输出全量温度，列顺序为全部 (0) 后全部 (1)。
 
     被调用: change_parameter_82A.py, predict.py
@@ -333,9 +354,13 @@ def run_all_simulations(process_data, n_workers=0, dt_override=None, params_list
         n_workers: 并行进程数。0 或 None 则使用 CPU 核心数。
         dt_override: 覆盖仿真时间步长
         params_list: list[dict] | dict | None，每条数据的参数字典
+        return_states: bool, 若为 True 则额外返回相变状态数据列表
 
     返回:
-        pandas.DataFrame，列为温度时间列
+        return_states=False: pandas.DataFrame（温度时间列）
+        return_states=True:  (pandas.DataFrame, list[dict])
+            列表中每个 dict 包含 time, T0, T1, pearlite_0_surface,
+            ferrite_0_surface, ferrite_final_0, f_total_0
     """
     if params_list is not None and not isinstance(params_list, list):
         params_list = [params_list] * len(process_data)
@@ -349,31 +374,37 @@ def run_all_simulations(process_data, n_workers=0, dt_override=None, params_list
         param_dict = None
         if params_list is not None:
             param_dict = params_list[idx - 1]
-        items.append((idx, row.to_dict(), param_dict, dt_override))
+        items.append((idx, row.to_dict(), param_dict, dt_override, return_states))
 
     sim_rows = [None] * (total_rows + 1)  # 1-based index
     all_columns = set()
+    all_state_data = [None] * (total_rows + 1) if return_states else None
 
     if total_rows == 0:
-        return pd.DataFrame()
+        return (pd.DataFrame(), []) if return_states else pd.DataFrame()
 
     if n_workers == 1 or total_rows <= 1:
-        for idx, row_dict, param_dict, dt_override in items:
+        for item in items:
+            idx = item[0]
             print(f"仿真进度: {idx}/{total_rows}")
-            idx_res, sim_cols, err = _worker_simulate((idx, row_dict, param_dict, dt_override))
+            idx_res, sim_cols, state_data, err = _worker_simulate(item)
             if err:
                 raise RuntimeError(f"仿真失败 idx={idx}: {err}")
             sim_rows[idx] = sim_cols
             all_columns.update(sim_cols.keys())
+            if return_states:
+                all_state_data[idx] = state_data
     else:
         pool_size = min(n_workers, total_rows)
         print(f"使用并行进程数: {pool_size}，总任务数: {total_rows}")
         with Pool(processes=pool_size) as pool:
-            for idx, sim_cols, err in pool.imap_unordered(_worker_simulate, items):
+            for idx, sim_cols, state_data, err in pool.imap_unordered(_worker_simulate, items):
                 if err:
                     raise RuntimeError(f"仿真失败 idx={idx}: {err}")
                 sim_rows[idx] = sim_cols
                 all_columns.update(sim_cols.keys())
+                if return_states:
+                    all_state_data[idx] = state_data
 
     sim_rows_list = [sim_rows[i] for i in range(1, total_rows + 1)]
     sim_df = pd.DataFrame(sim_rows_list)
@@ -391,7 +422,11 @@ def run_all_simulations(process_data, n_workers=0, dt_override=None, params_list
         if col not in sim_df.columns:
             sim_df[col] = np.nan
 
-    return sim_df[ordered_cols]
+    result_df = sim_df[ordered_cols]
+    if return_states:
+        state_list = [all_state_data[i] for i in range(1, total_rows + 1)]
+        return result_df, state_list
+    return result_df
 
 
 # ═══════════════════════════════════════════════════════════════

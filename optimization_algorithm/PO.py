@@ -10,36 +10,61 @@ sys.path.append(os.path.join(project_root, "data_driven"))
 sys.path.append(os.path.join(project_root, "sim_T"))
 import predict as pred
 import calculate_all_sim_T as calc
+import expert_constraints as ec
 
-# ==================== 解的类定义 ====================
+# ==================== 1. 数据结构 ====================
+
 class Solution:
-    """存储单个解的位置和代价（适应度），对应MATLAB中的结构体Sol(i)"""
+    """候选解：位置向量 + 代价（适应度值）。"""
     def __init__(self, dim):
-        self.X = np.zeros(dim)  # 位置向量
-        self.Cost = float('inf')  # 代价（适应度值）
+        self.X = np.zeros(dim)
+        self.Cost = float('inf')
 
 
-# BASE_CHEMISTRY = {
-#     "C_ELE": 0.82,
-#     "SI_ELE": 0.21,
-#     "MN_ELE": 0.52,
-#     "P_ELE": 0.011,
-#     "S_ELE": 0.006,
-#     "CR_ELE": 0.012,
-#     "NI_ELE": 0.007,
-#     "CU_ELE": 0.01,
-# }
+# ==================== 2. 搜索空间定义（17 维，不含成分） ====================
 
+# 固定化学成分 —— 82A 标准中值，非优化变量
+FIXED_CHEMISTRY = {
+    "C_ELE": 0.82, "SI_ELE": 0.25, "MN_ELE": 0.50,
+    "P_ELE": 0.012, "S_ELE": 0.010,
+    "CR_ELE": 0.20, "NI_ELE": 0.05, "CU_ELE": 0.05,
+}
+
+# 优化变量（17 维）：ORT + SPEED1~10 + FAN1~6
+# 注：SPEED0 生产数据全为 NaN（吐丝机速度不属辊道序列），
+#     FAN7 生产数据全为 NaN（实际无第 7 台风机），均从搜索空间移除。
 PROCESS_VAR_COLS = [
-    "C_ELE","SI_ELE","MN_ELE","P_ELE","S_ELE","CR_ELE","NI_ELE","CU_ELE",
     "ORT",
     "SPEED1", "SPEED2", "SPEED3", "SPEED4", "SPEED5",
     "SPEED6", "SPEED7", "SPEED8", "SPEED9", "SPEED10",
     "FAN1", "FAN2", "FAN3", "FAN4", "FAN5", "FAN6",
 ]
 
+# 优化变量上下界（工艺可行性约束）
+_VAR_LB = np.array([
+    890,                                    # ORT (°C)
+    0.50, 0.50, 0.50, 0.50, 0.50,          # SPEED1~5 (m/s)
+    0.50, 0.50, 0.50, 0.50, 0.50,          # SPEED6~10
+    0, 0, 0, 0, 0, 0,                      # FAN1~6 (%)
+], dtype=np.float64)
 
-def _build_process_batch_df(X_batch):
+_VAR_UB = np.array([
+    940,                                    # ORT (°C)
+    1.60, 1.60, 1.60, 1.60, 1.60,          # SPEED1~5 (m/s)
+    1.60, 1.60, 1.60, 1.60, 1.60,          # SPEED6~10
+    100, 100, 100, 100, 100, 100,           # FAN1~6 (%)
+], dtype=np.float64)
+
+
+def get_search_bounds():
+    """返回 (下界, 上界, 维度)。"""
+    return _VAR_LB.copy(), _VAR_UB.copy(), len(_VAR_LB)
+
+
+# ==================== 3. 候选解 → 工艺参数 DataFrame ====================
+
+def _build_process_df(X_batch):
+    """将优化变量矩阵转为工艺参数 DataFrame，注入固定化学成分。"""
     X_arr = np.asarray(X_batch, dtype=np.float64)
     if X_arr.ndim == 1:
         X_arr = X_arr.reshape(1, -1)
@@ -50,11 +75,11 @@ def _build_process_batch_df(X_batch):
         )
 
     df = pd.DataFrame(X_arr, columns=PROCESS_VAR_COLS)
-    # for col, value in BASE_CHEMISTRY.items():
-    #     df[col] = value
-
-    # ordered_cols = list(BASE_CHEMISTRY.keys()) + PROCESS_VAR_COLS
-    ordered_cols = PROCESS_VAR_COLS
+    # 注入固定化学成分
+    for col, value in FIXED_CHEMISTRY.items():
+        df[col] = value
+    # 列顺序与 run_all_simulations 期望一致：化学成分 + 工艺参数
+    ordered_cols = list(FIXED_CHEMISTRY.keys()) + PROCESS_VAR_COLS
     return df[ordered_cols]
 
 
@@ -74,26 +99,49 @@ def _evaluate_candidates_batch(X_batch, CostFunction, BatchCostFunction=None, ba
 
 def stelmor_batch_cost_function(X_batch, batch_tag=""):
     """
-    按批次评估候选解，阶段顺序为：
-    1) 批次温度仿真 run_all_simulations
-    2) 批次温度重采样 resample_sim_data
-    3) 批次性能预测 predict_Ts
+    批量评估候选解，依次执行：
+    1) 预检查 —— 过滤明显越界候选解
+    2) 温度仿真 + 相变数据提取
+    3) 温度重采样 + ML 力学性能预测
+    4) 专家约束评价 + 评分聚合
+       Score = k_MP * MP_cost + k_EK * (EK_penalty - w_bonus * EK_bonus)
     """
     X_arr = np.asarray(X_batch, dtype=np.float64)
     if X_arr.ndim == 1:
         X_arr = X_arr.reshape(1, -1)
 
     n_batch = X_arr.shape[0]
-    process_batch_df = _build_process_batch_df(X_arr)
+    process_batch_df = _build_process_df(X_arr)
     tag = batch_tag if batch_tag else "Batch"
 
+    # ── 阶段 1: 预检查 ──
+    pre_penalties = np.zeros(n_batch, dtype=np.float64)
+    feasible_mask = np.ones(n_batch, dtype=bool)
+    for i in range(n_batch):
+        row = process_batch_df.iloc[i]
+        params = {
+            "ORT": float(row["ORT"]),
+            "SPEED": [float(row[f"SPEED{j}"]) for j in range(1, 11)],
+            "FAN": [float(row[f"FAN{j}"]) for j in range(1, 7)],
+        }
+        ok, p = ec.pre_check_bounds(params)
+        feasible_mask[i] = ok
+        pre_penalties[i] = p
+
+    n_feasible = feasible_mask.sum()
+    print(f"[{tag}] 预检查: {n_feasible}/{n_batch} 通过")
+
+    # ── 阶段 2: 温度仿真（含相变状态数据） ──
     t_stage = time.perf_counter()
-    print(f"[{tag}] 温度仿真开始，批量大小={n_batch}")
-    all_sim_t_batch = calc.run_all_simulations(process_batch_df, n_workers=0)
+    print(f"[{tag}] 温度仿真开始，可行批量大小={n_feasible}")
+    all_sim_t_batch, state_data_list = calc.run_all_simulations(
+        process_batch_df, n_workers=0, return_states=True
+    )
     print(f"[{tag}] 温度仿真完成，用时 {time.perf_counter() - t_stage:.2f}s")
 
+    # ── 阶段 3: 温度重采样 + ML 预测 ──
     t_stage = time.perf_counter()
-    print(f"[{tag}] 温度重采样开始，批量大小={n_batch}")
+    print(f"[{tag}] 温度重采样开始")
     resampled_list = []
     for i in range(n_batch):
         demo_i = process_batch_df.iloc[[i]]
@@ -110,7 +158,7 @@ def stelmor_batch_cost_function(X_batch, batch_tag=""):
     print(f"[{tag}] 温度重采样完成，用时 {time.perf_counter() - t_stage:.2f}s")
 
     t_stage = time.perf_counter()
-    print(f"[{tag}] 力学性能预测开始，批量大小={n_batch}")
+    print(f"[{tag}] 力学性能预测开始")
     predict_device = os.getenv("STELMOR_PREDICT_DEVICE", "auto")
     Ts_batch = pred.predict_Ts(process_data_new_batch, device=predict_device)
     Ts_batch = np.asarray(Ts_batch, dtype=np.float64).reshape(-1)
@@ -120,199 +168,41 @@ def stelmor_batch_cost_function(X_batch, batch_tag=""):
         raise ValueError(f"predict_Ts 返回长度异常，期望 {n_batch}，实际 {Ts_batch.size}")
     print(f"[{tag}] 力学性能预测完成，用时 {time.perf_counter() - t_stage:.2f}s")
 
-    return -Ts_batch
+    # ── 阶段 4: 专家约束评价 + 评分聚合 ──
+    # Score = k_MP * MP_cost + k_EK * (EK_penalty - w_bonus * EK_bonus)
+    scores = np.full(n_batch, float("inf"), dtype=np.float64)
+    for i in range(n_batch):
+        if not feasible_mask[i]:
+            continue  # 保持 inf
 
-# ==================== 1. 边界检查函数 ====================
-def boundary_check(X, lb, ub):
-    """
-    边界检查：确保解的每个维度都在上下界范围内
-    对应MATLAB文件：boundaryCheck.m
-    
-    参数：
-    X : np.ndarray - 待检查的位置向量
-    lb : float/np.ndarray - 下界
-    ub : float/np.ndarray - 上界
-    
-    返回：
-    X : np.ndarray - 修正后的位置向量
-    """
+        vals = ec.extract_from_state_data(state_data_list[i])
+        feasible, penalty, bonus, details = ec.evaluate_constraints(
+            vals, pred_TS=float(Ts_batch[i]), pred_Z=None
+        )
+        ek_penalty = penalty + pre_penalties[i]  # 专家知识惩罚（含预检查）
+        ek_bonus = bonus
+        score = ec.compute_total_score(feasible, ek_penalty, ek_bonus, mp_cost=0.0)
+        scores[i] = score
+
+        if i == 0 or (i < 3 and batch_tag == "Init"):
+            print(f"[{tag}] 样本[{i}] TS={Ts_batch[i]:.0f} cr_pearl={vals.get('cr_pearl','?'):.1f} "
+                  f"pearl={vals.get('pearl_frac',0):.3f} dT={vals.get('max_dT_total',0):.1f} "
+                  f"feasible={feasible} EK_penalty={ek_penalty:.2f} EK_bonus={ek_bonus:.1f} score={score:.2f}")
+
+    return scores
+
+# ==================== 4. 边界检查 ====================
+
+def _clamp_to_bounds(X, lb, ub):
+    """将解向量的每个维度限制在 [lb, ub] 范围内。"""
     return np.clip(X, lb, ub)
 
-# ==================== 2. 测试函数定义（F1-F23） ====================
-def F1(x):
-    """Sphere函数，对应MATLAB的F1"""
-    return np.sum(x**2)
 
-def F2(x):
-    """对应MATLAB的F2"""
-    return np.sum(np.abs(x)) + np.prod(np.abs(x))
+# ==================== 5. Puma 优化算法 ====================
 
-def F3(x):
-    """对应MATLAB的F3"""
-    dim = len(x)
-    return sum(np.sum(x[:i+1])**2 for i in range(dim))
-
-def F4(x):
-    """对应MATLAB的F4"""
-    return np.max(np.abs(x))
-
-def F5(x):
-    """Rosenbrock函数，对应MATLAB的F5"""
-    return np.sum(100*(x[1:] - x[:-1]**2)**2 + (x[:-1]-1)**2)
-
-def F6(x):
-    """对应MATLAB的F6"""
-    return np.sum((x + 0.5)**2)
-
-def F7(x):
-    """对应MATLAB的F7"""
-    dim = len(x)
-    return np.sum(np.arange(1, dim+1) * x**4) + np.random.rand()
-
-def F8(x):
-    """Schwefel函数，对应MATLAB的F8"""
-    return np.sum(-x * np.sin(np.sqrt(np.abs(x))))
-
-def F9(x):
-    """Rastrigin函数，对应MATLAB的F9"""
-    dim = len(x)
-    return np.sum(x**2 - 10*np.cos(2*np.pi*x)) + 10*dim
-
-def F10(x):
-    """Ackley函数，对应MATLAB的F10"""
-    dim = len(x)
-    return (-20*np.exp(-0.2*np.sqrt(np.sum(x**2)/dim)) 
-            - np.exp(np.sum(np.cos(2*np.pi*x))/dim) + 20 + np.exp(1))
-
-def F11(x):
-    """Griewank函数，对应MATLAB的F11"""
-    dim = len(x)
-    return np.sum(x**2)/4000 - np.prod(np.cos(x/np.sqrt(np.arange(1, dim+1)))) + 1
-
-def Ufun(x, a, k, m):
-    """辅助函数，对应MATLAB的Ufun"""
-    return k*((x-a)**m)*(x>a) + k*((-x-a)**m)*(x<-a)
-
-def F12(x):
-    """对应MATLAB的F12"""
-    dim = len(x)
-    term1 = (np.pi/dim)*(10*np.sin(np.pi*(1+(x[0]+1)/4))**2 +
-                         np.sum((((x[:-1]+1)/4)**2)*(1+10*np.sin(np.pi*(1+(x[1:]+1)/4))**2)) +
-                         ((x[-1]+1)/4)**2)
-    term2 = np.sum(Ufun(x, 10, 100, 4))
-    return term1 + term2
-
-def F13(x):
-    """对应MATLAB的F13"""
-    dim = len(x)
-    term1 = 0.1*(np.sin(3*np.pi*x[0])**2 +
-                 np.sum((x[:-1]-1)**2*(1+np.sin(3*np.pi*x[1:])**2)) +
-                 (x[-1]-1)**2*(1+np.sin(2*np.pi*x[-1])**2))
-    term2 = np.sum(Ufun(x, 5, 100, 4))
-    return term1 + term2
-
-def F14(x):
-    """对应MATLAB的F14"""
-    aS = np.array([[-32,-16,0,16,32]*5, [-32]*5+[-16]*5+[0]*5+[16]*5+[32]*5])
-    bS = np.sum((x[:,None]-aS)**6, axis=0)
-    return (1/500 + np.sum(1/(np.arange(1,26)+bS)))**(-1)
-
-def F15(x):
-    """对应MATLAB的F15"""
-    aK = np.array([.1957,.1947,.1735,.16,.0844,.0627,.0456,.0342,.0323,.0235,.0246])
-    bK = 1/np.array([.25,.5,1,2,4,6,8,10,12,14,16])
-    return np.sum((aK - (x[0]*(bK**2+x[1]*bK))/(bK**2+x[2]*bK+x[3]))**2)
-
-def F16(x):
-    """对应MATLAB的F16"""
-    return 4*x[0]**2 - 2.1*x[0]**4 + x[0]**6/3 + x[0]*x[1] - 4*x[1]**2 + 4*x[1]**4
-
-def F17(x):
-    """对应MATLAB的F17"""
-    return (x[1] - 5.1*x[0]**2/(4*np.pi**2) + 5*x[0]/np.pi -6)**2 + 10*(1-1/(8*np.pi))*np.cos(x[0]) +10
-
-def F18(x):
-    """对应MATLAB的F18"""
-    term1 = 1 + (x[0]+x[1]+1)**2*(19-14*x[0]+3*x[0]**2-14*x[1]+6*x[0]*x[1]+3*x[1]**2)
-    term2 = 30 + (2*x[0]-3*x[1])**2*(18-32*x[0]+12*x[0]**2+48*x[1]-36*x[0]*x[1]+27*x[1]**2)
-    return term1*term2
-
-def F19(x):
-    """对应MATLAB的F19"""
-    aH = np.array([[3,10,30],[.1,10,35],[3,10,30],[.1,10,35]])
-    cH = np.array([1,1.2,3,3.2])
-    pH = np.array([[.3689,.117,.2673],[.4699,.4387,.747],[.1091,.8732,.5547],[.03815,.5743,.8828]])
-    return -np.sum(cH * np.exp(-np.sum(aH*(x-pH)**2, axis=1)))
-
-def F20(x):
-    """对应MATLAB的F20"""
-    aH = np.array([[10,3,17,3.5,1.7,8],[.05,10,17,.1,8,14],[3,3.5,1.7,10,17,8],[17,8,.05,10,.1,14]])
-    cH = np.array([1,1.2,3,3.2])
-    pH = np.array([[.1312,.1696,.5569,.0124,.8283,.5886],[.2329,.4135,.8307,.3736,.1004,.9991],
-                   [.2348,.1415,.3522,.2883,.3047,.6650],[.4047,.8828,.8732,.5743,.1091,.0381]])
-    return -np.sum(cH * np.exp(-np.sum(aH*(x-pH)**2, axis=1)))
-
-def F21(x):
-    """对应MATLAB的F21"""
-    aSH = np.array([[4,4,4,4],[1,1,1,1],[8,8,8,8],[6,6,6,6],[3,7,3,7]])
-    cSH = np.array([.1,.2,.2,.4,.4])
-    return -np.sum([1/((x-aSH[i])@(x-aSH[i])+cSH[i]) for i in range(5)])
-
-def F22(x):
-    """对应MATLAB的F22"""
-    aSH = np.array([[4,4,4,4],[1,1,1,1],[8,8,8,8],[6,6,6,6],[3,7,3,7],[2,9,2,9],[5,5,3,3]])
-    cSH = np.array([.1,.2,.2,.4,.4,.6,.3])
-    return -np.sum([1/((x-aSH[i])@(x-aSH[i])+cSH[i]) for i in range(7)])
-
-def F23(x):
-    """对应MATLAB的F23"""
-    aSH = np.array([[4,4,4,4],[1,1,1,1],[8,8,8,8],[6,6,6,6],[3,7,3,7],[2,9,2,9],[5,5,3,3],[8,1,8,1],[6,2,6,2],[7,3.6,7,3.6]])
-    cSH = np.array([.1,.2,.2,.4,.4,.6,.3,.7,.5,.5])
-    return -np.sum([1/((x-aSH[i])@(x-aSH[i])+cSH[i]) for i in range(10)])
-
-# ==================== 3. 测试函数详情获取 ====================
-def get_functions_details(F):
-    """
-    获取测试函数的上下界、维度和函数句柄
-    对应MATLAB文件：Get_Functions_details.m
-    """
-    n1 = 30  # 默认最大维度
-    func_dict = {
-        'F1': (F1, -100, 100, n1),
-        'F2': (F2, -10, 10, n1),
-        'F3': (F3, -100, 100, n1),
-        'F4': (F4, -100, 100, n1),
-        'F5': (F5, -30, 30, n1),
-        'F6': (F6, -100, 100, n1),
-        'F7': (F7, -1.28, 1.28, n1),
-        'F8': (F8, -500, 500, n1),
-        'F9': (F9, -5.12, 5.12, n1),
-        'F10': (F10, -32, 32, n1),
-        'F11': (F11, -600, 600, n1),
-        'F12': (F12, -50, 50, n1),
-        'F13': (F13, -50, 50, n1),
-        'F14': (F14, -65.536, 65.536, 2),
-        'F15': (F15, -5, 5, 4),
-        'F16': (F16, -5, 5, 2),
-        'F17': (F17, np.array([-5,0]), np.array([10,15]), 2),
-        'F18': (F18, -5, 5, 2),
-        'F19': (F19, 0, 1, 3),
-        'F20': (F20, 0, 1, 6),
-        'F21': (F21, 0, 10, 4),
-        'F22': (F22, 0, 10, 4),
-        'F23': (F23, 0, 10, 4),
-    }
-    if F not in func_dict:
-        raise ValueError(f"未知测试函数: {F}")
-    fobj, lb, ub, dim = func_dict[F]
-    return lb, ub, dim, fobj
-
-# ==================== 4. 探索阶段函数 ====================
-def exploration(Sol, lb, ub, dim, nSol, CostFunction, BatchCostFunction=None, batch_tag=""):
-    """
-    探索阶段（全局搜索）
-    对应MATLAB文件：Exploration.m
-    """
+# --- 探索阶段 ---
+def _exploration_phase(Sol, lb, ub, dim, nSol, CostFunction, BatchCostFunction=None, batch_tag=""):
+    """探索阶段：全局搜索，通过随机差分变异生成新候选解。"""
     # 按代价排序种群
     Sol = sorted(Sol, key=lambda s: s.Cost)
     pCR = 0.2
@@ -336,7 +226,7 @@ def exploration(Sol, lb, ub, dim, nSol, CostFunction, BatchCostFunction=None, ba
                  G*(((Sol[a].X-Sol[b].X)-(Sol[c].X-Sol[d].X)) + 
                     ((Sol[c].X-Sol[d].X)-(Sol[e].X-Sol[f].X))))
         
-        y = boundary_check(y, lb, ub)
+        y = _clamp_to_bounds(y, lb, ub)
         z = np.zeros_like(x)
         j0 = np.random.randint(dim)
         
@@ -368,12 +258,9 @@ def exploration(Sol, lb, ub, dim, nSol, CostFunction, BatchCostFunction=None, ba
     
     return NewSol
 
-# ==================== 5. 开发阶段函数 ====================
-def exploitation(Sol, lb, ub, dim, nSol, Best, MaxIter, Iter, CostFunction, BatchCostFunction=None, batch_tag=""):
-    """
-    开发阶段（局部搜索）
-    对应MATLAB文件：Exploitation.m
-    """
+# --- 开发阶段 ---
+def _exploitation_phase(Sol, lb, ub, dim, nSol, Best, MaxIter, Iter, CostFunction, BatchCostFunction=None, batch_tag=""):
+    """开发阶段：局部搜索，利用当前最优解引导搜索方向。"""
     Q = 0.67
     Beta = 2
     NewSol = []
@@ -407,7 +294,7 @@ def exploitation(Sol, lb, ub, dim, nSol, Best, MaxIter, Iter, CostFunction, Batc
             sign = (-1)**np.random.randint(0,2)
             new_sol.X = (mbest*Sol[r1].X - sign*Sol[i].X) / (1 + Beta*np.random.rand())
 
-        new_sol.X = boundary_check(new_sol.X, lb, ub)
+        new_sol.X = _clamp_to_bounds(new_sol.X, lb, ub)
         candidates[i] = new_sol.X
 
     candidate_costs = _evaluate_candidates_batch(
@@ -429,11 +316,23 @@ def exploitation(Sol, lb, ub, dim, nSol, Best, MaxIter, Iter, CostFunction, Batc
     
     return NewSol
 
-# ==================== 6. 美洲豹优化算法主函数 ====================
-def puma(nSol, MaxIter, lb, ub, dim, CostFunction, BatchCostFunction=None):
+# --- 算法主流程 ---
+def puma_optimize(nSol, MaxIter, lb, ub, dim, CostFunction, BatchCostFunction=None,
+                  patience=30):
     """
-    美洲豹优化算法主流程
-    对应MATLAB文件：Puma.m
+    Puma（美洲豹）优化算法。
+
+    参数：
+        nSol: 种群规模（≥7）
+        MaxIter: 最大迭代次数（≥3）
+        lb, ub: 搜索空间下/上界，可为标量或同维向量
+        dim: 搜索空间维度
+        CostFunction: 单样本代价函数 f(x) → float
+        BatchCostFunction: 批量代价函数 f(X) → ndarray，若提供则用于批量评估
+        patience: 早停容忍轮数，最优解连续未更新达到此数则提前终止（默认 30）
+
+    返回：
+        (best_position, best_cost, convergence_curve)
     """
     # 参数初始化
     UnSelected = np.ones(2)
@@ -465,11 +364,12 @@ def puma(nSol, MaxIter, lb, ub, dim, CostFunction, BatchCostFunction=None):
     Initial_Best = Best
     Flag_Change = 1
     Convergence = []
+    no_improve_count = 0  # 早停计数器
     
     # -------------------- 无经验阶段（前3次迭代） --------------------
     for Iter in range(1, 4):
         # 执行探索和开发
-        Sol_Explor = exploration(
+        Sol_Explor = _exploration_phase(
             Sol,
             lb,
             ub,
@@ -482,7 +382,7 @@ def puma(nSol, MaxIter, lb, ub, dim, CostFunction, BatchCostFunction=None):
         cost_explor = min(s.Cost for s in Sol_Explor)
         Seq_Cost_Explore[Iter-1] = cost_explor
         
-        Sol_Exploit = exploitation(
+        Sol_Exploit = _exploitation_phase(
             Sol,
             lb,
             ub,
@@ -530,7 +430,7 @@ def puma(nSol, MaxIter, lb, ub, dim, CostFunction, BatchCostFunction=None):
         if Score_Explore > Score_Exploit:
             # 选择探索
             SelectFlag = 1
-            Sol = exploration(
+            Sol = _exploration_phase(
                 Sol,
                 lb,
                 ub,
@@ -548,7 +448,7 @@ def puma(nSol, MaxIter, lb, ub, dim, CostFunction, BatchCostFunction=None):
         else:
             # 选择开发
             SelectFlag = 2
-            Sol = exploitation(
+            Sol = _exploitation_phase(
                 Sol,
                 lb,
                 ub,
@@ -582,7 +482,10 @@ def puma(nSol, MaxIter, lb, ub, dim, CostFunction, BatchCostFunction=None):
         
         if TBest.Cost < Best.Cost:
             Best = TBest
-        
+            no_improve_count = 0
+        else:
+            no_improve_count += 1
+
         # 更新时间序列
         if Flag_Change != SelectFlag:
             Flag_Change = SelectFlag
@@ -617,49 +520,41 @@ def puma(nSol, MaxIter, lb, ub, dim, CostFunction, BatchCostFunction=None):
         
         Convergence.append(Best.Cost)
         print(f"Iteration: {Iter} Best Cost = {Best.Cost}")
-    
+
+        # 早停机制
+        if no_improve_count >= patience:
+            print(f"早停: 最优解已连续 {patience} 轮未更新，在第 {Iter} 轮提前终止")
+            break
+
     return Best.X, Best.Cost, Convergence
 
+# ==================== 6. 代价函数接口 ====================
+
 def get_stelmor_sim_details():
-    # #确定所有工艺参数的上界
-    # ub = np.array([0.8870,0.23,0.55,0.015,0.01,0.058,0.257,0.0161, 920, 1.21,1.34,1.46,1.48,1.48,1.48,1.48,1.48,1.53,1.60, 100,100,100,100,100,100])
-    
-    # #确定所有工艺参数的下界
-    # lb = np.array([0.81,0.18,0.47,0.0062,0.0025,0.006,0.005,0.0059, 840, 0.82,0.88,0.96,1.06,0.43,0.43,0.43,0.43,0.43,0.43, 0,0,0,0,0,0])
+    """返回 (下界, 上界, 维度) —— 兼容旧接口，委托给 get_search_bounds。"""
+    return get_search_bounds()
 
-    #确定所有工艺参数的上界
-    ub = np.array([0.82,0.21,0.52,0.011,0.006,0.012,0.007,0.01, 920, 1.21,1.34,1.46,1.48,1.48,1.48,1.48,1.48,1.53,1.60, 100,100,100,100,100,100])
-    #确定所有工艺参数的下界
-    lb = np.array([0.82,0.21,0.52,0.011,0.006,0.012,0.007,0.01, 840, 0.82,0.88,0.96,1.06,0.43,0.43,0.43,0.43,0.43,0.43, 0,0,0,0,0,0])
-
-    #确定工艺参数的维度
-    dim = len(lb)
-    return lb, ub, dim
 
 def stelmor_sim_CostFunction(x):
-    return float(stelmor_batch_cost_function(np.asarray(x, dtype=np.float64).reshape(1, -1), batch_tag="Single")[0])
-
+    """单样本代价函数包装，供优化器逐样本评估时调用。"""
+    return float(stelmor_batch_cost_function(
+        np.asarray(x, dtype=np.float64).reshape(1, -1), batch_tag="Single")[0])
 
 
 # ==================== 7. 主程序入口 ====================
-def main():
-    """
-    主程序，对应MATLAB文件：main.m
-    """
-    # # 选择测试函数（F1-F23）
-    # Function_name = 'F1'
-    
-    # # 获取测试函数信息
-    # lb, ub, dim, fobj = get_functions_details(Function_name)
-    
-    # 算法参数
-    MaxIter = 300   # 最大迭代次数，最小为3
-    PopSize = 100   # 种群规模最小为7，因为算法中需要选择6个不同的个体
-    
-    lb, ub, dim = get_stelmor_sim_details()
 
-    # 运行算法   
-    best_pos, best_score, convergence = puma(
+def main():
+    """82A 斯太尔摩工艺参数优化主程序。
+
+    Score = k_MP * MP_cost + k_EK * (EK_penalty - w_bonus * EK_bonus)
+    MP_cost 暂为 0（力学性能数据不完全），当前仅专家知识项生效。
+    """
+    MaxIter = 300
+    PopSize = 100
+
+    lb, ub, dim = get_search_bounds()
+
+    best_pos, best_score, convergence = puma_optimize(
         PopSize,
         MaxIter,
         lb,
@@ -668,13 +563,17 @@ def main():
         stelmor_sim_CostFunction,
         BatchCostFunction=stelmor_batch_cost_function,
     )
-    
+
+    # 输出最优解（17 维：ORT + SPEED1~10 + FAN1~6）
     best_solution_text = (
-        f"Best Score:{-best_score}\n"
-        f"C:{best_pos[0]}\nSi:{best_pos[1]}\nMn:{best_pos[2]}\nP:{best_pos[3]}\nS:{best_pos[4]}\nCr:{best_pos[5]}\nNi:{best_pos[6]}\nCu:{best_pos[7]}\n"
-        f"ORT:{best_pos[8]}\n"
-        f"SPEED1:{best_pos[9]}\nSPEED2:{best_pos[10]}\nSPEED3:{best_pos[11]}\nSPEED4:{best_pos[12]}\nSPEED5:{best_pos[13]}\nSPEED6:{best_pos[14]}\nSPEED7:{best_pos[15]}\nSPEED8:{best_pos[16]}\nSPEED9:{best_pos[17]}\nSPEED10:{best_pos[18]}\n"
-        f"FAN1:{best_pos[19]}\nFAN2:{best_pos[20]}\nFAN3:{best_pos[21]}\nFAN4:{best_pos[22]}\nFAN5:{best_pos[23]}\nFAN6:{best_pos[24]}"
+        f"Best Score:{best_score:.3f} (0=ideal, inf=infeasible)\n"
+        f"ORT:{best_pos[0]:.0f}\n"
+        f"SPEED1:{best_pos[1]:.3f}\nSPEED2:{best_pos[2]:.3f}\nSPEED3:{best_pos[3]:.3f}\n"
+        f"SPEED4:{best_pos[4]:.3f}\nSPEED5:{best_pos[5]:.3f}\nSPEED6:{best_pos[6]:.3f}\n"
+        f"SPEED7:{best_pos[7]:.3f}\nSPEED8:{best_pos[8]:.3f}\nSPEED9:{best_pos[9]:.3f}\n"
+        f"SPEED10:{best_pos[10]:.3f}\n"
+        f"FAN1:{best_pos[11]:.0f}\nFAN2:{best_pos[12]:.0f}\nFAN3:{best_pos[13]:.0f}\n"
+        f"FAN4:{best_pos[14]:.0f}\nFAN5:{best_pos[15]:.0f}\nFAN6:{best_pos[16]:.0f}"
     )
     best_solution_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "best_solution.txt")
     with open(best_solution_path, "w", encoding="utf-8") as f:
@@ -694,7 +593,7 @@ def main():
         plt.plot(curve, color='r', linewidth=1.25)
         y_label = 'Best Cost So Far (Linear Scale)'
 
-    plt.title('Convergence Curve')
+    plt.title('Convergence Curve (Constraint Score)')
     plt.xlabel('Iteration')
     plt.ylabel(y_label)
     plt.xlim(0, max(len(curve) - 1, 1))

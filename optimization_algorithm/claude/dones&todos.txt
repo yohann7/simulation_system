@@ -1,0 +1,61 @@
+optimization_algorithm — 进度摘要（2026-05-14）
+═══════════════════════════════════════════════════════════════
+
+已完成（DONE）
+─────────────────────────────────────────────────────────────
+
+1. expert_constraints.py 核心模块 [plan §3.9]
+   - extract_from_state / extract_from_state_data：从仿真状态提取约束值
+   - pre_check_bounds：H1(ORT) + H6(SPEED) + H7(相邻速比≤2.0) + S5/S6 跳跃惩罚
+   - evaluate_constraints：H2/H3(软) + H4(硬) + S1-S8(软) + B1/B2/B4(奖励)
+   - compute_total_score：Score = k_MP*MP_cost + k_EK*(EK_penalty - w_bonus*EK_bonus)
+   - 权重配置：K_MP=0, K_EK=1.0, W_BONUS=0.3
+
+2. PO.py 代价函数改造 [plan §5]
+   - 搜索空间 25D→17D（去掉 8 个化学元素，固定为 82A 中值）
+   - SPEED 范围 [0.5, 1.6] m/s，FAN 范围 [0, 100]%
+   - stelmor_batch_cost_function：预检查→仿真→ML预测→约束评价→评分聚合
+   - 早停机制：patience=30 轮无改进即终止
+   - 保留原 stelmor_sim_CostFunction 单样本包装
+
+3. calculate_all_sim_T.py 仿真接口 [plan 步骤2]
+   - run_all_simulations() 新增 return_states 参数（向后兼容）
+   - _worker_simulate 返回相变数据（pearlite/ferrite/f_total 重采样到 1s 间隔）
+   - 修复数组维度对齐 bug（相变数据 dt=0.01s vs 温度数据 1s）
+
+4. 约束校准 [plan §3.9 实际数据]
+   - H2/H3 硬→软约束（生产 cr_pearl≈5.8-6.2，低于文献 8-15）
+   - B1 目标温度 630→655±10°C（82A 实际相变 ~660°C）
+   - 惩罚系数下调，加单次跳变上限（S5≤50, S6≤20）
+   - 新增 H7 硬约束（相邻速比）
+
+5. 奖励权重调整
+   - W_BONUS = 0.3，防止奖励（max=13）压倒惩罚
+   - 最大奖励贡献 3.9，仅作 tiebreaker
+
+6. 小规模测试验证
+   - test_optimization_small.py: PopSize=15, MaxIter=12
+   - 端到端管道正常：预检查→仿真→约束评价→评分→优化迭代
+   - 最佳 score ≈ -3 ~ -12（奖励 > 小惩罚时可为负）
+
+
+待实现（TODO）
+─────────────────────────────────────────────────────────────
+
+紧迫：
+  □ 大规模优化测试（PopSize=100, MaxIter=300）     [plan §5]
+  □ 补充 EXT/Z 预测模型 → 启用 MP_cost              [plan §4]
+  □ S3 cr_post 阈值调整（当前 3.0 偏严，实际 ~3.36） [plan §3.9 S3]
+  □ predict_Ts NaN 问题排查（极端参数时 ML 失效）    [plan §4 误差]
+
+重要：
+  □ B3 近等温相变奖励                                [plan §3.9 B3]
+  □ 风机策略约束（单调性/能耗/离散档位映射）         [plan §3.8.2]
+  □ 辊速交替变化策略（慢→快→慢→快）                  [plan §3.6.3]
+  □ 验证闭环：最优解须通过 sim_T 重现                [plan §6.3]
+
+可选：
+  □ Morris 敏感性分析（17 维 → 5-8 个关键参数）      [plan §4.2]
+  □ 替代模型 MLP 加速（[SPEED,FAN,ORT]→冷速）       [plan §4.2]
+  □ 多目标优化 NSGA-II（TS + EXT + 能耗）            [plan §5.2]
+  □ FAN/SPEED 离散档位映射                           [plan §3.10]
