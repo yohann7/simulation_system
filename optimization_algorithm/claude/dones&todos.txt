@@ -6,13 +6,13 @@ optimization_algorithm — 进度摘要（2026-05-14）
 
 1. expert_constraints.py 核心模块 [plan §3.9]
    - extract_from_state / extract_from_state_data：从仿真状态提取约束值
-   - pre_check_bounds：H1(ORT) + H6(SPEED) + H7(相邻速比≤2.0) + S5/S6 跳跃惩罚
+   - pre_check_bounds：H1(ORT) + H6(SPEED) + H7(相邻速比≤1.5) + S5 跳跃惩罚
    - evaluate_constraints：H2/H3(软) + H4(硬) + S1-S8(软) + B1/B2/B4(奖励)
    - compute_total_score：Score = k_MP*MP_cost + k_EK*(EK_penalty - w_bonus*EK_bonus)
    - 权重配置：K_MP=0, K_EK=1.0, W_BONUS=0.3
 
 2. PO.py 代价函数改造 [plan §5]
-   - 搜索空间 25D→17D（去掉 8 个化学元素，固定为 82A 中值）
+   - 搜索空间 25D→21D（去掉 8 个化学元素，固定为 82A 中值；FAN 6→10）
    - SPEED 范围 [0.5, 1.6] m/s，FAN 范围 [0, 100]%
    - stelmor_batch_cost_function：预检查→仿真→ML预测→约束评价→评分聚合
    - 早停机制：patience=30 轮无改进即终止
@@ -38,6 +38,17 @@ optimization_algorithm — 进度摘要（2026-05-14）
    - 端到端管道正常：预检查→仿真→约束评价→评分→优化迭代
    - 最佳 score ≈ -3 ~ -12（奖励 > 小惩罚时可为负）
 
+7. 硬约束融入候选解生成 [plan §3.12]
+   - PO.py 新增 _repair_speeds() 修复函数，级联约束 H7（相邻速比 ≤ 1.5）
+   - 调用点：种群初始化 / 探索阶段 / 开发阶段，所有候选解生成后均修复
+   - H1(ORT)/H6(SPEED) 由 lb/ub 边界隐式保证，H4(pearl_frac) 需仿真后判断
+
+8. H2/S3 惩罚效果测试验证 [plan §3.9]
+   - H2 cr_pearl: 9-12 理想区零惩罚，偏离 1°C/s → 5.0，偏离 3°C/s → 45.0
+   - S3 cr_post: ≤3.0 零惩罚，超 0.5°C/s → 1.25，超 2°C/s → 20.0，超 7°C/s → 245.0
+   - 惩罚可区分优劣：理想解 EK_cost=-3.90（仅奖励），中度违规 +10，严重违规 +125
+   - 测试结论：乘数 5.0 合理，惩罚量级与奖励 (max 13×0.3=3.9) 无冲突
+
 
 待实现（TODO）
 ─────────────────────────────────────────────────────────────
@@ -55,7 +66,7 @@ optimization_algorithm — 进度摘要（2026-05-14）
   □ 验证闭环：最优解须通过 sim_T 重现                [plan §6.3]
 
 可选：
-  □ Morris 敏感性分析（17 维 → 5-8 个关键参数）      [plan §4.2]
+  □ Morris 敏感性分析（21 维 → 5-8 个关键参数）      [plan §4.2]
   □ 替代模型 MLP 加速（[SPEED,FAN,ORT]→冷速）       [plan §4.2]
   □ 多目标优化 NSGA-II（TS + EXT + 能耗）            [plan §5.2]
   □ FAN/SPEED 离散档位映射                           [plan §3.10]

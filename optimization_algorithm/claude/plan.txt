@@ -392,236 +392,292 @@ PO.py 当前方案：
     - 环境温度/湿度季节性变化影响冷却速度（夏天 vs 冬天差异显著）
     - 风机开度与冷却速度无线性关系（受环境温度影响，需在线测温反馈）
 
-3.9 专家知识 → 约束条件（完整转化表）
+3.9 专家知识 → 约束条件（完整转化表 —— 已按代码实现更新）
 
-  当前采用文献推荐的严格约束。右侧附实际生产数据范围供后续调整参考。
-  策略：先用文献约束执行优化，若可行域过小（合格解太少），再按数据范围逐步放宽。
+  约束分两层执行：
+    Level 1 — pre_check_bounds()：无仿真，仅检查工艺参数边界（H1, H6, H7, S5）
+    Level 2 — evaluate_constraints()：需 sim_T 仿真状态 + ML 预测（H2~H4, S1~S4, S7~S8, B1~B4）
 
-  ┌──────────────────────────────────────────────────────────────────────────────────────────────┐
-  │ 编号 │ 专家知识                        │ 约束编码（文献推荐，当前执行）│ 实际数据范围（参考）    │
-  ├──────┼─────────────────────────────────┼──────────────────────────────┼─────────────────────────┤
-  │      │                                 │                              │                         │
-  │ 硬约束（不可违反，违反直接拒绝候选解）  │                              │                         │
-  │      │                                 │                              │                         │
-  │ H1   │ 吐丝温度范围                    │ ORT ∈ [890, 940] °C          │ 实际 [840, 920]         │
-  │      │ 文献：WLX82A CCT 推荐 910-930， │                              │ mean=873，               │
-  │      │ ±10°C 波动 → 约束 [890, 940]   │                              │ 与文献差 ~40°C          │
-  │      │                                 │                              │ 若过严可放宽到 [870,920]│
-  │      │                                 │                              │                         │
-  │ H2   │ 相变阶段冷速范围                │ CR_pearl ∈ [8, 15] °C/s      │ 实际 [4.2, 19.5]        │
-  │      │ 文献：索氏体区 9-12°C/s，       │                              │ mean=16.1，              │
-  │      │ 含安全裕量 → 约束 [8, 15]       │                              │ 67% 数据 > 15            │
-  │      │                                 │                              │ 若过严可放宽到 [6, 18]  │
-  │      │                                 │                              │                         │
-  │ H3   │ 禁止马氏体（550°C 以下冷速）    │ CR_max_550 < 5 °C/s          │ 实际无直接数据           │
-  │      │ 文献：82B 不变形临界 5°C/s，    │                              │ V_COOL 为珠光体温区值，  │
-  │      │ Ms≈250°C → 此约束不可妥协       │                              │ 与 550°C 以下冷速不同    │
-  │      │                                 │                              │                         │
-  │ H4   │ 珠光体转变完成度                │ pearlite_frac ≥ 0.85          │ sim_T 仿真 82A 通常      │
-  │      │ 标准：索氏体含量 ≥ 85%          │                              │ pearlite≈0.99，易满足    │
-  │      │                                 │                              │                         │
-  │ H5   │ 元素成分边界（非优化变量，      │ C  ∈ [0.79, 0.86] wt%        │ 实际 C [0.81, 0.887]    │
-  │      │ 仅做输入合法性校验）            │ Si ∈ [0.15, 0.35] wt%        │ Si [0.18, 0.23]         │
-  │      │ 来源：JIS G 3506 SWRH82A       │ Mn ∈ [0.30, 0.60] wt%        │ Mn [0.47, 0.55]         │
-  │      │ + T/JSGT 006-2021 LX82A        │ P ≤ 0.030, S ≤ 0.030 wt%     │ P [0.006, 0.015]        │
-  │      │                                 │ Cr ≤ 0.20, Ni ≤ 0.25,       │ S [0.003, 0.010]        │
-  │      │                                 │ Cu ≤ 0.25 wt%                │ Cr [0.006, 0.058]       │
-  │      │                                 │                              │                         │
-  │ H6   │ 辊道速度范围                    │ SPEED_i ∈ [0.1, 1.3] m/s     │ 实际 [0.0, 1.603]       │
-  │      │ 文献：斯太尔摩线 0.05-1.30，    │                              │ SPEED0 全 NaN（无数据）  │
-  │      │ 优化后取 [0.1, 1.3]             │                              │ SPEED9/10 可为零         │
-  │      │                                 │                              │ 若过严可放宽到 [0.0,1.6]│
-  │      │                                 │                              │                         │
-  │ H7   │ 风机开度范围                    │ FAN_i ∈ [0, 100] %           │ 实际仅 13 种离散组合     │
-  │      │ 设备能力 0-100%                 │                              │ FAN7 全 NaN（无数据）    │
-  │      │                                 │                              │ 99% 生产使用 5 种模式    │
-  │      │                                 │                              │                         │
-  │ 软约束（惩罚项，叠加到目标函数）        │                              │                         │
-  │      │                                 │                              │                         │
-  │ S1   │ 相变区搭接/非搭接温差           │ ΔT_pearl > 15 °C → penalty    │ 实际无直接数据           │
-  │      │ 宝钢专利：测温点温差 < 15°C     │                              │ sim_T 可输出此值         │
-  │      │                                 │                              │                         │
-  │ S2   │ 全程搭接/非搭接温差             │ ΔT_max > 20 °C → penalty      │ 无佳灵装置时达 30-50°C  │
-  │      │ 文献：全程可接受 ≤ 20°C         │                              │ 若过严可放宽到 25°C     │
-  │      │                                 │                              │                         │
-  │ S3   │ 相变后冷却速率                  │ CR_post > 3 °C/s → penalty    │ 实际无直接数据           │
-  │      │ 文献：相变后缓冷 1-3°C/s        │                              │ 550°C 以下自然降温为主   │
-  │      │                                 │                              │                         │
-  │ S4   │ 先共析渗碳体分数                │ cem_frac > 0.03 → penalty     │ 实际 fraction 总量       │
-  │      │ 网状渗碳体 ≤ 1.0 级，          │                              │ [0.01, 2.59]%，          │
-  │      │ 等效约 3% 体积分数              │                              │ Cementite 组 42/219      │
-  │      │                                 │                              │                         │
-  │ S5   │ 相邻段辊速跳跃                  │ |SPEED_i/SPEED_{i-1} - 1|    │ 实际 96.8% 段跃 < 0.2   │
-  │      │ 文献：相邻段速比 0.85-1.25      │ > 0.25 → penalty              │ SPEED8→9 有 10 例       │
-  │      │ （即允许 15-25% 变化）          │                              │ SPEED9=0（末段停转）     │
-  │      │                                 │                              │                         │
-  │ S6   │ 相邻段风机开度跳跃              │ |FAN_i - FAN_{i-1}|           │ 实际 FAN1→2 有 34%      │
-  │      │ 文献：避免气流急剧变化          │ > 40% → penalty               │ 超 40%（FAN1=0+FAN2=99  │
-  │      │                                 │                              │ 是常见合法操作）         │
-  │      │                                 │                              │ 若过严可放宽到 60%       │
-  │      │                                 │                              │                         │
-  │ S7   │ TS 偏离目标范围                 │ TS ∉ [980, 1120] → penalty    │ 实际 [964, 1246]         │
-  │      │ T/JSGT 006: 1050±70 MPa        │                              │ 仅 27% 在 [980,1120]    │
-  │      │                                 │                              │ mean=1149，系统性偏高    │
-  │      │                                 │                              │ 若过严考虑：<980 重罚    │
-  │      │                                 │                              │ >1180 轻罚              │
-  │      │                                 │                              │                         │
-  │ S8   │ Z 低于标准                      │ Z < 38% → penalty             │ 实际 [31, 51]            │
-  │      │ T/JSGT 006: Z ≥ 38%            │                              │ 80% 满足，约束合理       │
-  │      │                                 │                              │                         │
-  │ 奖励项（减分，鼓励优良特性）            │                              │                         │
-  │      │                                 │                              │                         │
-  │ B1   │ 相变温度接近 630 °C             │ |T_trans - 630| < 15°C → bonus│ 实际无直接数据          │
-  │ B2   │ 珠光体片层间距在目标区间         │ S₀ ∈ [0.12, 0.17] μm → bonus  │ 实际 [0.138, 0.197]     │
-  │      │                                 │                              │ 99% 在此区间，易触发     │
-  │ B3   │ 相变阶段温度平稳（近等温）       │ dT/dt 方差小 → bonus          │ sim_T 可输出             │
-  │ B4   │ 索氏体率 ≥ 90%（超越标准）       │ pearlite_frac ≥ 0.90 → bonus  │ sim_T 仿真通常 ~0.99    │
-  └──────┴─────────────────────────────────┴──────────────────────────────┴─────────────────────────┘
+  评分公式：
+    Score = k_MP × MP_cost + k_EK × (EK_penalty - w_bonus × EK_bonus)
+    当前权重：k_MP = 0, k_EK = 1.0, w_bonus = 0.3
+    不可行解 Score = +inf；分数越低越优，可为负数。
 
-3.10 搜索空间最终定义（17 维，不含成分）
+  注意：H2/H3 原计划为硬约束，但 82A 生产数据 cr_pearl ≈ 5.8-6.2 无法满足文献 [8,15]，
+        且 H2 与 H3 同时满足需精确分段冷却，故改为软约束。H2 目标区间从 [8,15] 收紧到
+        [9,12] °C/s（索氏体最优区），惩罚乘数提高到 5.0。B1 目标温度按 82A 实测相变
+        温度 ~660°C 调整为 655±10°C。B3（近等温奖励）暂未实现。S6（风机开度跳跃）已移除。
+
+  ┌──────────────────────────────────────────────────────────────────────────────────────────────────────┐
+  │ 编号 │ 约束类型 │ 专家知识                          │ 编码实现（expert_constraints.py）           │
+  ├──────┼──────────┼───────────────────────────────────┼──────────────────────────────────────────────┤
+  │      │          │                                   │                                              │
+  │ ██ 硬约束 —— 违反直接拒绝（Score = +inf）                                                           │
+  │      │          │                                   │                                              │
+  │ H1   │ 硬       │ 吐丝温度范围                     │ ORT ∉ [890, 940] → inf                       │
+  │      │          │ 文献 910-930 ±10°C               │ pre_check_bounds (Level 1, 无仿真)            │
+  │      │          │                                   │                                              │
+  │ H4   │ 硬       │ 珠光体转变量 ≥ 85%               │ pearl_frac < 0.85 → inf                       │
+  │      │          │ T/JSGT 006 索氏体含量标准        │ evaluate_constraints (Level 2, 需仿真)         │
+  │      │          │                                   │                                              │
+  │ H6   │ 硬       │ 辊道速度范围                     │ SPEED_i ∉ [0.5, 1.6] m/s → inf                │
+  │      │          │ 下限 0.5 (产能要求)              │ pre_check_bounds (Level 1)                    │
+  │      │          │ 上限 1.6 (设备能力)              │                                              │
+  │      │          │                                   │                                              │
+  │ H7   │ 硬       │ 相邻段辊速比 ≤ 1.5               │ max(s_i/s_{i-1}, s_{i-1}/s_i) > 1.5 → inf     │
+  │      │          │ 防止线材堆叠或拉断               │ pre_check_bounds (Level 1)                    │
+  │      │          │                                   │                                              │
+  │ ██ 软约束 —— 违反施加惩罚（二次型，叠加到 Score）                                                    │
+  │      │          │                                   │                                              │
+  │ H2   │ 软*      │ 珠光体温区冷却速率               │ cr_pearl < 9:   p = (9 - cr_pearl)² × 5.0     │
+  │      │          │ 目标 [9, 12] °C/s（索氏体最优） │ cr_pearl > 12:  p = (cr_pearl - 12)² × 5.0     │
+  │      │          │ *原计划硬约束，改为软约束        │ cr_pearl = None: p = 50.0 (未进入温区)         │
+  │      │          │ 惩罚乘数 5.0（↑ 原 2.0）        │ evaluate_constraints (Level 2)                 │
+  │      │          │                                   │                                              │
+  │ H3   │ 软*      │ 550°C 以下冷速（防马氏体）       │ cr_550 ≥ 5:  p = (cr_550 - 5)² × 3.0           │
+  │      │          │ 限值 5 °C/s                      │ evaluate_constraints (Level 2)                 │
+  │      │          │ *原计划硬约束，与 H2 互斥改为软   │                                              │
+  │      │          │                                   │                                              │
+  │ S1   │ 软       │ 相变区搭接/非搭接温差 ≤ 15°C     │ dT_pearl > 15:  p = (dT_pearl - 15)² × 2.0     │
+  │      │          │                                   │ evaluate_constraints (Level 2)                 │
+  │      │          │                                   │                                              │
+  │ S2   │ 软       │ 全程搭接/非搭接温差 ≤ 20°C       │ dT_max > 20:  p = (dT_max - 20)² × 1.0         │
+  │      │          │                                   │ evaluate_constraints (Level 2)                 │
+  │      │          │                                   │                                              │
+  │ S3   │ 软       │ 相变后冷却速率 ≤ 3 °C/s          │ cr_post > 3:  p = (cr_post - 3)² × 5.0          │
+  │      │          │ 惩罚乘数 5.0（↑ 原 1.0）        │ evaluate_constraints (Level 2)                 │
+  │      │          │                                   │                                              │
+  │ S4   │ 软       │ 先共析渗碳体分数 ≤ 3%            │ cem_frac > 0.03: p = (cem_frac-0.03)² × 20.0   │
+  │      │          │                                   │ evaluate_constraints (Level 2)                 │
+  │      │          │                                   │                                              │
+  │ S5   │ 软       │ 相邻段辊速跳跃 ≤ 25%             │ ratio = |s_i/s_{i-1} - 1|                      │
+  │      │          │                                   │ ratio > 0.25: p = (ratio-0.25)² × 10.0          │
+  │      │          │                                   │ cap: max 50/jump (防数值爆炸)                  │
+  │      │          │                                   │ pre_check_bounds (Level 1)                     │
+  │      │          │                                   │                                              │
+  │ S7   │ 软       │ TS ∈ [980, 1120] MPa             │ TS < 980:  p = (980 - TS)² × 0.001              │
+  │      │          │ T/JSGT 006: 1050±70              │ TS > 1120: p = (TS - 1120)² × 0.001             │
+  │      │          │                                   │ evaluate_constraints (Level 2, 需 ML 预测)      │
+  │      │          │                                   │                                              │
+  │ S8   │ 软       │ Z ≥ 38%                          │ pred_Z < 38: p = (38 - pred_Z)² × 5.0           │
+  │      │          │                                   │ evaluate_constraints (Level 2)                 │
+  │      │          │                                   │ 注：pred_Z 模型缺失，当前跳过                    │
+  │      │          │                                   │                                              │
+  │ ██ 奖励项 —— 达到理想目标减分（w_bonus=0.3，有效贡献 = 奖励值 × 0.3）                                │
+  │      │          │                                   │                                              │
+  │ B1   │ 奖励     │ 相变温度在目标区间               │ |T_trans - 655| < 10°C → bonus +5.0             │
+  │      │          │ 目标 655°C（82A 实测 ~660°C）    │ evaluate_constraints (Level 2)                 │
+  │      │          │ 容差 ±10°C → [645, 665]          │                                              │
+  │      │          │                                   │                                              │
+  │ B2   │ 奖励     │ 珠光体片层间距在目标区间         │ S₀ ∈ [0.12, 0.17] μm → bonus +3.0              │
+  │      │          │                                   │ evaluate_constraints (Level 2)                 │
+  │      │          │                                   │                                              │
+  │ B4   │ 奖励     │ 索氏体率 ≥ 90%（超标准 85%）     │ pearl_frac ≥ 0.90 → bonus +5.0                  │
+  │      │          │                                   │ evaluate_constraints (Level 2)                 │
+  │      │          │                                   │                                              │
+  │ B3   │ —        │ 相变阶段温度平稳（近等温）       │ 未实现                                        │
+  └──────┴──────────┴───────────────────────────────────┴──────────────────────────────────────────────┘
+
+  已移除的约束：
+    H5 (元素成分边界) —— 化学成分固定为 82A 中值（C=0.82, Si=0.25, Mn=0.50），非优化变量，无需校验。
+    原 H7 (风机开度范围) —— 由搜索空间上下界 [0, 100]% 隐式保证，不单独编号。
+    S6 (相邻段风机开度跳跃) —— 已移除。风机策略约束通过 H2/H3/S3 的冷却速率约束间接体现。
+
+3.10 搜索空间最终定义（21 维，不含成分）
 
   固定参数（不优化，取 82A 标准中值）：
     C = 0.82, Si = 0.25, Mn = 0.50, P = 0.012, S = 0.010,
     Cr = 0.20, Ni = 0.05, Cu = 0.05
 
-  优化变量（17 维 = ORT + SPEED1~10 + FAN1~6）：
+  优化变量（21 维 = ORT + SPEED1~10 + FAN1~10）：
     ┌──────────┬─────────┬───────┬──────┬──────────────────────────┐
     │ 变量     │ 下界    │ 上界  │ 步长 │ 说明                     │
     ├──────────┼─────────┼───────┼──────┼──────────────────────────┤
     │ ORT      │ 890     │ 940   │ 连续 │ °C，文献 910-930 ±10    │
-    │ SPEED1~10│ 0.10    │ 1.30  │ 连续 │ m/s，斯太尔摩线 0.05-1.30│
-    │ FAN1~6   │ 0       │ 100   │ 10*  │ %，优化后映射离散档位    │
+    │ SPEED1~10│ 0.50    │ 1.60  │ 连续 │ m/s，产能下限+设备能力    │
+    │ FAN1~10  │ 0       │ 100   │ 连续 │ %，风机开度              │
     └──────────┴─────────┴───────┴──────┴──────────────────────────┘
-    * 优化后映射到最近的可操作离散档位（10% 步进）
 
     注：SPEED0 生产数据全为 NaN（吐丝机速度不纳入辊道速度序列），
-        FAN7 生产数据全为 NaN（实际产线未配置第 7 台风机），
-        两者均从搜索空间中移除。
-        实际数据参考范围见 3.9 节各约束的"实际数据范围"列。
+        已从搜索空间中移除。
+        FAN1~10 映射到 sim_T 辊道 rolls[1]~rolls[10]（对应风机 1#~5# 的 10 个半段），
+        均为配备风机的辊道段。
+        SPEED 下界 0.5 基于产能要求（低于此速度产能不足），
+        上界 1.6 基于设备最大能力（超过此速度辊道无法稳定运行）。
 
-3.11 约束编码伪代码
+3.11 约束编码实现（与 expert_constraints.py 一致）
 
-  注：以下为当前文献约束的编码实现，实际数据参考值见 3.9 节注释。
-      后续若需放宽约束，修改对应阈值即可。
+  评价流程分两层，总分计算公式：
+    Score = k_MP × MP_cost + k_EK × (EK_penalty - W_BONUS × EK_bonus)
+    当前 k_MP = 0, k_EK = 1.0, W_BONUS = 0.3
 
-  def evaluate_expert_constraints(state, process_params, pred_TS, pred_Z):
-      """返回 (is_feasible: bool, penalty: float, bonus: float)
+  ═══════════════════════════════════════════════════
+  Level 1: 预检查 pre_check_bounds(params) — 不跑仿真
+  ═══════════════════════════════════════════════════
 
-      硬约束: is_feasible=False → 直接拒绝该候选解
-      软约束: penalty > 0   → 叠加到目标函数
-      奖励项: bonus > 0     → 从目标函数扣除
-
-      process_params: {'ORT': float, 'SPEED': list[float] × 10, 'FAN': list[float] × 6}
-                      注：SPEED 索引 1~10（不含 SPEED0，生产数据全 NaN），
-                          FAN  索引 1~6 （不含 FAN7，生产数据全 NaN）
+  def pre_check_bounds(params):
       """
+      params: {'ORT': float, 'SPEED': [float×10], 'FAN': [float×10]}
+      返回: (feasible: bool, penalty: float)
+      """
+      penalty = 0.0
+
+      # H1: 吐丝温度 ∈ [890, 940]
+      if params['ORT'] < 890 or params['ORT'] > 940:
+          return False, 0.0
+
+      # H6: 辊速 ∈ [0.5, 1.6] m/s
+      if any(s < 0.5 or s > 1.6 for s in params['SPEED']):
+          return False, 0.0
+
+      # H7: 相邻段速比 ≤ 1.5（防堆叠/拉断）
+      for i in 1..9:
+          if speeds[i-1] > 0 and speeds[i] > 0:
+              r = max(s_i/s_{i-1}, s_{i-1}/s_i)
+              if r > 1.5: return False, 0.0
+
+      # S5: 相邻段辊速跳跃软约束（单次上限 50）
+      for i in 1..9:
+          if speeds[i-1] > 0 and speeds[i] > 0:
+              ratio = |s_i / s_{i-1} - 1|
+              if ratio > 0.25:
+                  p = (ratio - 0.25)² × 10.0
+                  penalty += min(p, 50.0)
+
+      return True, penalty
+
+  ═══════════════════════════════════════════════════
+  Level 2: 仿真后评价 evaluate_constraints(vals, pred_TS, pred_Z)
+  ═══════════════════════════════════════════════════
+
+  def evaluate_constraints(vals, pred_TS=None, pred_Z=None):
+      """
+      vals: extract_from_state_data() 返回的 dict，包含:
+          cr_pearl, cr_550, pearl_frac, cem_frac,
+          max_dT_pearl, max_dT_total, cr_post, T_trans, S0_est
+      pred_TS: ML 预测抗拉强度 (MPa) 或 None
+      pred_Z:  ML 预测断面收缩率 (%) 或 None（当前未实现）
+      返回: (feasible: bool, penalty: float, bonus: float, details: dict)
+      """
+      cfg = CONSTRAINT_CFG
       penalty, bonus = 0.0, 0.0
 
+      # ── 软约束（原 H2/H3 硬约束已转软） ──
+      # H2: 珠光体区冷速偏离 [9, 12] → 二次惩罚（乘数 5.0）
+      if cr_pearl is not None:
+          if cr_pearl < 9:   penalty += (9 - cr_pearl)² × 5.0
+          if cr_pearl > 12:  penalty += (cr_pearl - 12)² × 5.0
+      else:
+          penalty += 50.0   # 未进入珠光体温区
+
+      # H3: 550°C 以下冷速超标 → 二次惩罚
+      if cr_550 >= 5.0:
+          penalty += (cr_550 - 5.0)² × 3.0
+
       # ── 硬约束 ──
-      # H1: 吐丝温度（文献 910-930 ±10°C → 约束 [890, 940]）
-      #     实际数据 [840, 920], mean=873；若过严可放宽下界至 870
-      ort = process_params['ORT']
-      if ort < 890 or ort > 940:
-          return False, 0.0, 0.0
-
-      # H2: 珠光体温区冷却速率（文献 9-12°C/s, 含裕量 → [8, 15]）
-      #     实际数据 [4.2, 19.5], mean=16.1, 67% > 15
-      #     若过严可放宽至 [6, 18]
-      cr_pearl = pearlite_zone_cooling_rate(state)
-      if cr_pearl < 8 or cr_pearl > 15:
-          return False, 0.0, 0.0
-
-      # H3: 避免马氏体（550°C 以下冷却速率 < 5°C/s，物理硬边界）
-      cr_low = cooling_rate_below_T(state, 550.0)
-      if cr_low >= 5.0:
-          return False, 0.0, 0.0
-
-      # H4: 珠光体转变量 ≥ 85%（索氏体含量标准）
-      pearl_frac = final_pearlite_fraction(state)
+      # H4: 珠光体转变量 ≥ 85%
       if pearl_frac < 0.85:
-          return False, 0.0, 0.0
-
-      # H5: 元素成分边界（非优化变量，仅输入校验；取 JIS G 3506 标准）
-      #     实际 C 上界达 0.887（超 JIS 0.86），其余元素在实际范围内
-      # ... 在搜索空间初始化时检查
-
-      # H6: 辊速范围 [0.1, 1.3] m/s（斯太尔摩线设备能力）
-      #     实际 SPEED9/10 可为零，上界达 1.603
-      #     若过严可放宽至 [0.0, 1.6]
-      speeds = process_params['SPEED']  # SPEED1~10, 共 10 维
-      if any(s < 0.1 or s > 1.3 for s in speeds):
-          return False, 0.0, 0.0
+          return False, 0.0, 0.0, details
 
       # ── 软约束 ──
-      # S1: 相变区搭接/非搭接温差 > 15°C → penalty
-      max_dT_pearl = max_surface_delta_T_in_pearlite_zone(state)
+      # S1: 相变区温差 > 15°C
       if max_dT_pearl > 15:
-          penalty += (max_dT_pearl - 15) ** 2 * 10
+          penalty += (max_dT_pearl - 15)² × 2.0
 
-      # S2: 全程搭接/非搭接温差 > 20°C → penalty
-      #     实际无佳灵装置时可达 30-50°C；若过严可放宽至 25°C
-      max_dT_total = max_surface_delta_T(state)
+      # S2: 全程温差 > 20°C
       if max_dT_total > 20:
-          penalty += (max_dT_total - 20) ** 2 * 5
+          penalty += (max_dT_total - 20)² × 1.0
 
-      # S3: 相变后（< 550°C）冷却速率 > 3°C/s → penalty
-      cr_post = post_pearlite_cooling_rate(state)
-      if cr_post > 3:
-          penalty += (cr_post - 3) ** 2 * 5
+      # S3: 相变后冷速 > 3°C/s（乘数 5.0）
+      if cr_post > 3.0:
+          penalty += (cr_post - 3.0)² × 5.0
 
-      # S4: 先共析渗碳体分数 > 3% → penalty
-      cem_frac = state.proeutectoid_cementite_fraction
+      # S4: 先共析渗碳体 > 3%
       if cem_frac > 0.03:
-          penalty += (cem_frac - 0.03) ** 2 * 100
+          penalty += (cem_frac - 0.03)² × 20.0
 
-      # S5: 相邻段辊速跳跃 > 25% → penalty（文献速比 0.85-1.25）
-      #     实际 96.8% 段跃 < 20%；SPEED8→SPEED9=0 需特殊豁免
-      for i in range(1, len(speeds)):
-          if speeds[i-1] > 0 and speeds[i] > 0:  # 豁免零速过渡
-              ratio = abs(speeds[i] / speeds[i-1] - 1)
-              if ratio > 0.25:
-                  penalty += (ratio - 0.25) ** 2 * 200
+      # S7: TS 偏离 [980, 1120]（pred_TS 为 None 时跳过）
+      if pred_TS is not None:
+          if pred_TS < 980:   penalty += (980 - pred_TS)² × 0.001
+          if pred_TS > 1120:  penalty += (pred_TS - 1120)² × 0.001
 
-      # S6: 相邻段风机开度跳跃 > 40% → penalty
-      #     实际 FAN1→2 有 34% 超 40%（FAN1=0+FAN2=99 是合法模式）
-      #     若过严可放宽至 60%
-      fans = process_params['FAN']  # FAN1~6, 共 6 维
-      for i in range(1, len(fans)):
-          jump = abs(fans[i] - fans[i-1])
-          if jump > 40:
-              penalty += (jump - 40) ** 2 * 0.5
-
-      # S7: TS 偏离标准范围 [980, 1120] → penalty
-      #     实际仅 27% 在此范围，mean=1149 系统性偏高
-      #     若过严可分段：<980 重罚（×1.0），>1180 轻罚（×0.3）
-      if pred_TS < 980:
-          penalty += (980 - pred_TS) ** 2 * 0.001
-      elif pred_TS > 1120:
-          penalty += (pred_TS - 1120) ** 2 * 0.001
-
-      # S8: Z 低于标准 38% → penalty（80% 数据满足，约束合理）
-      if pred_Z < 38:
-          penalty += (38 - pred_Z) ** 2 * 5
+      # S8: Z < 38%（pred_Z 为 None 时跳过，当前未实现）
+      if pred_Z is not None and pred_Z < 38:
+          penalty += (38 - pred_Z)² × 5.0
 
       # ── 奖励项 ──
-      # B1: 相变温度接近 630 °C（索氏体区最优温度）
-      T_trans = pearlite_transformation_temperature(state)
-      if abs(T_trans - 630) < 15:
+      # B1: 相变温度 ∈ [645, 665] °C（目标 655±10）
+      if T_trans is not None and |T_trans - 655| < 10:
           bonus += 5.0
 
-      # B2: 珠光体片层间距在目标区间（99% 生产数据已满足，权重不宜大）
-      S0 = estimate_lamellar_spacing(state)
-      if 0.12 <= S0 <= 0.17:
+      # B2: 片层间距 ∈ [0.12, 0.17] μm
+      if S0_est is not None and 0.12 ≤ S0_est ≤ 0.17:
           bonus += 3.0
 
-      # B3: 相变阶段温度平稳（近等温，dT/dt 方差小）
-      # bonus += ...
-
-      # B4: 索氏体率 ≥ 90%（超越标准 T/JSGT 006 的 85%）
-      if pearl_frac >= 0.90:
+      # B4: 索氏体率 ≥ 90%
+      if pearl_frac ≥ 0.90:
           bonus += 5.0
 
-      return True, penalty, bonus
+      # B3: 近等温相变（未实现）
+
+      return True, penalty, bonus, details
+
+  ═══════════════════════════════════════════════════
+  评分聚合 compute_total_score()
+  ═══════════════════════════════════════════════════
+
+  def compute_total_score(feasible, ek_penalty, ek_bonus, mp_cost=0.0):
+      if not feasible: return float("inf")
+      ek_cost = ek_penalty - W_BONUS × ek_bonus    # W_BONUS = 0.3
+      return K_MP × mp_cost + K_EK × ek_cost        # K_MP=0, K_EK=1.0
+
+  ═══════════════════════════════════════════════════
+  完整评价管线（stelmor_batch_cost_function in PO.py）
+  ═══════════════════════════════════════════════════
+
+  for each candidate solution x ∈ R^21:
+      1. params = extract(x) → {ORT, SPEED[10], FAN[10]}
+      2. feasible, pre_penalty = pre_check_bounds(params)
+         if not feasible: score = +inf, continue
+      3. state_data = run_single_simulation(params)   # sim_T
+      4. vals = extract_from_state_data(state_data)   # 提取 cr_pearl 等
+      5. pred_TS = ML_model.predict(vals, process)    # data_driven 模型
+      6. feasible, penalty, bonus = evaluate_constraints(vals, pred_TS)
+      7. score = compute_total_score(feasible,
+                   pre_penalty + penalty,   # EK_penalty
+                   bonus)                   # EK_bonus
+
+3.12 硬约束在候选解生成中的嵌入（PO.py _repair_speeds）
+
+  除 H4（珠光体转变量 ≥ 85%，需仿真后判断）外，其余硬约束均在候选解生成阶段
+  直接嵌入，使所有候选解自动满足：
+
+    H1: ORT ∈ [890, 940]         → 由搜索空间 lb/ub 保证
+    H6: SPEED ∈ [0.5, 1.6] m/s   → 由搜索空间 lb/ub 保证
+    H7: 相邻段辊速比 ≤ 1.5       → 由 _repair_speeds() 修复函数保证
+
+  H7 修复逻辑（级联约束）：
+
+    从 SPEED1 向后级联，每段被限制在 [prev/1.5, prev*1.5] 内：
+
+    def _repair_speeds(X, lb, ub):
+        X_r = np.clip(X, lb, ub)
+        for i in range(2, 11):          # SPEED2 ~ SPEED10 (索引 2~10)
+            prev = X_r[i - 1]
+            lo = prev / 1.5
+            hi = prev * 1.5
+            if X_r[i] < lo or X_r[i] > hi:
+                X_r[i] = np.clip(X_r[i], lo, hi)
+        return np.clip(X_r, lb, ub)
+
+  调用点（PO.py puma_optimize）：
+    - 种群初始化：X_init[i] = _repair_speeds(X_init[i], lb, ub)
+    - 探索阶段：  candidates[i] = _repair_speeds(z, lb, ub)
+    - 开发阶段：  new_sol.X = _repair_speeds(_clamp_to_bounds(...), lb, ub)
+
+  设计理由：与 pre_check_bounds 拒绝不可行解相比，修复策略将不可行解投影到最近
+  可行域，避免了浪费仿真计算在注定被拒绝的候选解上。SPEED1 保持原值作为锚点，
+  后续速度逐个适配，保证整条辊道速度曲线的物理可实现性。
 
 ═══════════════════════════════════════════════════════════════
 四、Step 2：工艺参数 → 力学性能的影响分析
@@ -783,54 +839,3 @@ PO.py 当前方案：
        → 三种类型（标准/缓冷/延迟冷）辊速范围：0.05-1.30 m/s
 
   [22] JIS G 3506:2004 High carbon steel wire rods (SWRH82A/B 成分标准).
-
-
-═══════════════════════════════════════════════════════════════
-附录 A — 当前实现状态（2026-05-14 更新）
-═══════════════════════════════════════════════════════════════
-
-A.1 已实现文件
-
-  optimization_algorithm/
-    ├── expert_constraints.py    # 专家约束评价核心模块
-    ├── PO.py                    # Puma 优化算法 + 代价函数接口
-    ├── test_optimization_small.py  # 小规模测试脚本
-    └── claude/
-        ├── plan.txt             # 本文件
-        └── dones&todos.txt      # 进度摘要
-
-  sim_T/
-    └── calculate_all_sim_T.py   # 批量仿真（含 return_states 支持）
-
-A.2 与计划的主要差异
-
-  搜索空间（§3.10）:
-    - SPEED 范围: [0.1, 1.3] → [0.5, 1.6] m/s（下限考虑产能，上限考虑设备能力）
-    - 新增 H7: 相邻辊速比 ≤ 2.0（硬约束，防堆叠/拉断）
-
-  约束转换（§3.9）:
-    - H2 (cr_pearl): 硬约束 → 软约束（生产数据均值 5.8-6.2，无法满足文献 8-15）
-    - H3 (cr_550):  硬约束 → 软约束（与 H2 互斥，同时满足需精确分段冷却）
-
-  奖励项:
-    - B1 目标温度: 630±15°C → 655±10°C（82A 珠光体转变自然发生在 ~660°C）
-    - B3（近等温奖励）: 未实现
-
-  惩罚系数（已大幅下调，避免数值爆炸）:
-    - S1: 2, S2: 1, S3: 1, S4: 20, S5: 10（上限50/跳）, S6: 0.1（上限20/跳）
-    - H2 偏离: 2.0, H3 超标: 3.0
-
-  评分公式（§5.1）:
-    Score = k_MP × MP_cost + k_EK × (EK_penalty - w_bonus × EK_bonus)
-    当前: k_MP=0, k_EK=1.0, w_bonus=0.3（奖励仅作 tiebreaker）
-
-  优化算法（§5.2）:
-    - Puma 算法保留，新增早停机制（patience=30 轮无改进即终止）
-
-A.3 已知问题
-
-  1. predict_Ts 偶发 NaN（极端工艺参数下 ML 模型失效）
-  2. S3 (cr_post) 阈值 3.0°C/s 偏严，实际值约 3.36
-  3. pred_Z 模型缺失，S8 约束暂不生效
-  4. 风机策略优化倾向全 100%（缺少能耗/单调性约束）
-  5. 仅完成小规模测试（PopSize=15, MaxIter=12）

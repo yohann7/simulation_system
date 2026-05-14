@@ -219,8 +219,8 @@ def _apply_process_row_to_sim(row, rolls):
         rolls[0].t = rolls[0].t * (old_v / entry_speed)
         rolls[0].step = int(rolls[0].t / sim._default_dt)
 
-    # 风机开度映射 (FAN1~FAN7)
-    fan_map = {f"FAN{i}": i for i in range(1, 8)}
+    # 风机开度映射 (FAN1~FAN10)
+    fan_map = {f"FAN{i}": i for i in range(1, 11)}
     for col, idx in fan_map.items():
         val = _safe_float(row.get(col))
         val = _normalize_percent(val)

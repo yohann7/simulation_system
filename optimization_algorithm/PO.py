@@ -21,7 +21,7 @@ class Solution:
         self.Cost = float('inf')
 
 
-# ==================== 2. 搜索空间定义（17 维，不含成分） ====================
+# ==================== 2. 搜索空间定义（21 维，不含成分） ====================
 
 # 固定化学成分 —— 82A 标准中值，非优化变量
 FIXED_CHEMISTRY = {
@@ -30,14 +30,13 @@ FIXED_CHEMISTRY = {
     "CR_ELE": 0.20, "NI_ELE": 0.05, "CU_ELE": 0.05,
 }
 
-# 优化变量（17 维）：ORT + SPEED1~10 + FAN1~6
-# 注：SPEED0 生产数据全为 NaN（吐丝机速度不属辊道序列），
-#     FAN7 生产数据全为 NaN（实际无第 7 台风机），均从搜索空间移除。
+# 优化变量（21 维）：ORT + SPEED1~10 + FAN1~10
 PROCESS_VAR_COLS = [
     "ORT",
     "SPEED1", "SPEED2", "SPEED3", "SPEED4", "SPEED5",
     "SPEED6", "SPEED7", "SPEED8", "SPEED9", "SPEED10",
-    "FAN1", "FAN2", "FAN3", "FAN4", "FAN5", "FAN6",
+    "FAN1", "FAN2", "FAN3", "FAN4", "FAN5",
+    "FAN6", "FAN7", "FAN8", "FAN9", "FAN10",
 ]
 
 # 优化变量上下界（工艺可行性约束）
@@ -46,6 +45,7 @@ _VAR_LB = np.array([
     0.50, 0.50, 0.50, 0.50, 0.50,          # SPEED1~5 (m/s)
     0.50, 0.50, 0.50, 0.50, 0.50,          # SPEED6~10
     0, 0, 0, 0, 0, 0,                      # FAN1~6 (%)
+    0, 0, 0, 0,                            # FAN7~10 (%)
 ], dtype=np.float64)
 
 _VAR_UB = np.array([
@@ -53,6 +53,7 @@ _VAR_UB = np.array([
     1.60, 1.60, 1.60, 1.60, 1.60,          # SPEED1~5 (m/s)
     1.60, 1.60, 1.60, 1.60, 1.60,          # SPEED6~10
     100, 100, 100, 100, 100, 100,           # FAN1~6 (%)
+    100, 100, 100, 100,                     # FAN7~10 (%)
 ], dtype=np.float64)
 
 
@@ -122,7 +123,7 @@ def stelmor_batch_cost_function(X_batch, batch_tag=""):
         params = {
             "ORT": float(row["ORT"]),
             "SPEED": [float(row[f"SPEED{j}"]) for j in range(1, 11)],
-            "FAN": [float(row[f"FAN{j}"]) for j in range(1, 7)],
+            "FAN": [float(row[f"FAN{j}"]) for j in range(1, 11)],
         }
         ok, p = ec.pre_check_bounds(params)
         feasible_mask[i] = ok
@@ -198,6 +199,23 @@ def _clamp_to_bounds(X, lb, ub):
     return np.clip(X, lb, ub)
 
 
+def _repair_speeds(X, lb, ub):
+    """修复 H7 硬约束：确保相邻段辊速比 ≤ 1.5。
+
+    从 SPEED1 向后级联：每段的辊速被限制在 [prev/1.5, prev*1.5] 内。
+    SPEED 索引对应 X[1:11]（ORT 在 X[0]，FAN1~10 在 X[11:21]）。
+    修复后再夹紧到全局边界。
+    """
+    X_r = np.clip(X, lb, ub)
+    for i in range(2, 11):  # SPEED2 ~ SPEED10
+        prev = X_r[i - 1]
+        lo = prev / 1.5
+        hi = prev * 1.5
+        if X_r[i] < lo or X_r[i] > hi:
+            X_r[i] = np.clip(X_r[i], lo, hi)
+    return np.clip(X_r, lb, ub)
+
+
 # ==================== 5. Puma 优化算法 ====================
 
 # --- 探索阶段 ---
@@ -229,14 +247,14 @@ def _exploration_phase(Sol, lb, ub, dim, nSol, CostFunction, BatchCostFunction=N
         y = _clamp_to_bounds(y, lb, ub)
         z = np.zeros_like(x)
         j0 = np.random.randint(dim)
-        
+
         for j in range(dim):
             if j == j0 or np.random.rand() <= PCR:
                 z[j] = y[j]
             else:
                 z[j] = x[j]
 
-        candidates[i] = z
+        candidates[i] = _repair_speeds(z, lb, ub)
 
     candidate_costs = _evaluate_candidates_batch(
         candidates,
@@ -294,7 +312,7 @@ def _exploitation_phase(Sol, lb, ub, dim, nSol, Best, MaxIter, Iter, CostFunctio
             sign = (-1)**np.random.randint(0,2)
             new_sol.X = (mbest*Sol[r1].X - sign*Sol[i].X) / (1 + Beta*np.random.rand())
 
-        new_sol.X = _clamp_to_bounds(new_sol.X, lb, ub)
+        new_sol.X = _repair_speeds(_clamp_to_bounds(new_sol.X, lb, ub), lb, ub)
         candidates[i] = new_sol.X
 
     candidate_costs = _evaluate_candidates_batch(
@@ -344,8 +362,10 @@ def puma_optimize(nSol, MaxIter, lb, ub, dim, CostFunction, BatchCostFunction=No
     PF_F3 = []
     Mega_Explor = Mega_Exploit = 0.99
     
-    # 种群初始化
+    # 种群初始化（含硬约束修复：H7 速比 ≤ 1.5）
     X_init = np.random.uniform(lb, ub, (nSol, dim))
+    for i in range(nSol):
+        X_init[i] = _repair_speeds(X_init[i], lb, ub)
     init_costs = _evaluate_candidates_batch(
         X_init,
         CostFunction,
@@ -549,8 +569,8 @@ def main():
     Score = k_MP * MP_cost + k_EK * (EK_penalty - w_bonus * EK_bonus)
     MP_cost 暂为 0（力学性能数据不完全），当前仅专家知识项生效。
     """
-    MaxIter = 300
-    PopSize = 100
+    MaxIter = 200
+    PopSize = 30
 
     lb, ub, dim = get_search_bounds()
 
@@ -564,7 +584,7 @@ def main():
         BatchCostFunction=stelmor_batch_cost_function,
     )
 
-    # 输出最优解（17 维：ORT + SPEED1~10 + FAN1~6）
+    # 输出最优解（21 维：ORT + SPEED1~10 + FAN1~10）
     best_solution_text = (
         f"Best Score:{best_score:.3f} (0=ideal, inf=infeasible)\n"
         f"ORT:{best_pos[0]:.0f}\n"
@@ -573,7 +593,9 @@ def main():
         f"SPEED7:{best_pos[7]:.3f}\nSPEED8:{best_pos[8]:.3f}\nSPEED9:{best_pos[9]:.3f}\n"
         f"SPEED10:{best_pos[10]:.3f}\n"
         f"FAN1:{best_pos[11]:.0f}\nFAN2:{best_pos[12]:.0f}\nFAN3:{best_pos[13]:.0f}\n"
-        f"FAN4:{best_pos[14]:.0f}\nFAN5:{best_pos[15]:.0f}\nFAN6:{best_pos[16]:.0f}"
+        f"FAN4:{best_pos[14]:.0f}\nFAN5:{best_pos[15]:.0f}\nFAN6:{best_pos[16]:.0f}\n"
+        f"FAN7:{best_pos[17]:.0f}\nFAN8:{best_pos[18]:.0f}\nFAN9:{best_pos[19]:.0f}\n"
+        f"FAN10:{best_pos[20]:.0f}"
     )
     best_solution_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "best_solution.txt")
     with open(best_solution_path, "w", encoding="utf-8") as f:

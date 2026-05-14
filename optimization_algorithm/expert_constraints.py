@@ -17,11 +17,11 @@ import numpy as np
 CONSTRAINT_CFG = {
     # ── 硬约束阈值 ──
     "ORT":       (890, 940),       # °C, 吐丝温度
-    "CR_PEARL":  (8.0, 15.0),      # °C/s, 珠光体温区平均冷却速率
+    "CR_PEARL":  (9.0, 12.0),      # °C/s, 珠光体温区平均冷却速率（索氏体最优区）
     "CR_550":    5.0,              # °C/s, 550°C 以下冷却速率上限（防马氏体）
     "PEARL_FRAC": 0.85,            # 珠光体转变量下限
     "SPEED":     (0.5, 1.6),       # m/s, 辊道速度（下限产能要求，上限设备能力）
-    "SPEED_RATIO_MAX": 2.0,        # 相邻段辊速比硬上限（防堆叠/拉断）
+    "SPEED_RATIO_MAX": 1.5,        # 相邻段辊速比硬上限（防堆叠/拉断）
     "FAN":       (0, 100),         # %, 风机开度
 
     # ── 软约束阈值 ──
@@ -304,14 +304,6 @@ def pre_check_bounds(params):
                 p = (ratio - cfg["SPEED_JUMP"]) ** 2 * 10.0
                 penalty += min(p, 50.0)
 
-    # S6: 相邻段风机开度跳跃，单次跳变惩罚上限 20
-    fans = params.get("FAN", [])
-    for i in range(1, len(fans)):
-        jump = abs(fans[i] - fans[i-1])
-        if jump > cfg["FAN_JUMP"]:
-            p = (jump - cfg["FAN_JUMP"]) ** 2 * 0.1
-            penalty += min(p, 20.0)
-
     return True, penalty
 
 
@@ -339,16 +331,16 @@ def evaluate_constraints(vals, pred_TS=None, pred_Z=None):
 
     # ═══ 硬约束 ═══
 
-    # H2: 珠光体温区冷却速率（软约束 —— 偏离理想区间施加惩罚，不再拒绝）
+    # H2: 珠光体温区冷却速率（软约束 —— 偏离理想区间 [9,12] 施加惩罚）
     cr_pearl = vals.get("cr_pearl")
     if cr_pearl is not None:
         cr_lo, cr_hi = cfg["CR_PEARL"]
         if cr_pearl < cr_lo:
-            p = (cr_lo - cr_pearl) ** 2 * 2.0
+            p = (cr_lo - cr_pearl) ** 2 * 5.0
             penalty += p
             details["H2_cr_pearl_low"] = p
         elif cr_pearl > cr_hi:
-            p = (cr_pearl - cr_hi) ** 2 * 2.0
+            p = (cr_pearl - cr_hi) ** 2 * 5.0
             penalty += p
             details["H2_cr_pearl_high"] = p
     else:
@@ -388,7 +380,7 @@ def evaluate_constraints(vals, pred_TS=None, pred_Z=None):
     # S3: 相变后冷却速率
     cr_post = vals.get("cr_post", 0.0)
     if cr_post > cfg["CR_POST"]:
-        p = (cr_post - cfg["CR_POST"]) ** 2 * 1.0
+        p = (cr_post - cfg["CR_POST"]) ** 2 * 5.0
         penalty += p
         details["S3_cr_post"] = p
 
