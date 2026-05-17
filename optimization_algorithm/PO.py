@@ -8,7 +8,6 @@ import time
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(os.path.join(project_root, "data_driven"))
 sys.path.append(os.path.join(project_root, "sim_T"))
-import predict as pred
 import calculate_all_sim_T as calc
 import expert_constraints as ec
 
@@ -31,6 +30,8 @@ FIXED_CHEMISTRY = {
 }
 
 # 优化变量（21 维）：ORT + SPEED1~10 + FAN1~10
+# 注：FAN7~10 生产数据未采集（best_process_data.txt 中为 None），
+#     系数标定无法为其提供指导，但仍作为优化搜索维度
 PROCESS_VAR_COLS = [
     "ORT",
     "SPEED1", "SPEED2", "SPEED3", "SPEED4", "SPEED5",
@@ -50,8 +51,8 @@ _VAR_LB = np.array([
 
 _VAR_UB = np.array([
     940,                                    # ORT (°C)
-    1.60, 1.60, 1.60, 1.60, 1.60,          # SPEED1~5 (m/s)
-    1.60, 1.60, 1.60, 1.60, 1.60,          # SPEED6~10
+    1.50, 1.50, 1.50, 1.50, 1.50,          # SPEED1~5 (m/s)
+    1.50, 1.50, 1.50, 1.50, 1.50,          # SPEED6~10
     100, 100, 100, 100, 100, 100,           # FAN1~6 (%)
     100, 100, 100, 100,                     # FAN7~10 (%)
 ], dtype=np.float64)
@@ -115,22 +116,17 @@ def stelmor_batch_cost_function(X_batch, batch_tag=""):
     process_batch_df = _build_process_df(X_arr)
     tag = batch_tag if batch_tag else "Batch"
 
-    # ── 阶段 1: 预检查 ──
+    # ── 阶段 1: 预检查（速比约束，无仿真）──
     pre_penalties = np.zeros(n_batch, dtype=np.float64)
-    feasible_mask = np.ones(n_batch, dtype=bool)
     for i in range(n_batch):
         row = process_batch_df.iloc[i]
         params = {
-            "ORT": float(row["ORT"]),
             "SPEED": [float(row[f"SPEED{j}"]) for j in range(1, 11)],
-            "FAN": [float(row[f"FAN{j}"]) for j in range(1, 11)],
         }
-        ok, p = ec.pre_check_bounds(params)
-        feasible_mask[i] = ok
-        pre_penalties[i] = p
+        pre_penalties[i] = ec.pre_check_bounds(params)
 
-    n_feasible = feasible_mask.sum()
-    print(f"[{tag}] 预检查: {n_feasible}/{n_batch} 通过")
+    n_feasible = n_batch
+    print(f"[{tag}] 预检查完成，批量大小={n_batch}")
 
     # ── 阶段 2: 温度仿真（含相变状态数据） ──
     t_stage = time.perf_counter()
@@ -140,55 +136,22 @@ def stelmor_batch_cost_function(X_batch, batch_tag=""):
     )
     print(f"[{tag}] 温度仿真完成，用时 {time.perf_counter() - t_stage:.2f}s")
 
-    # ── 阶段 3: 温度重采样 + ML 预测 ──
-    t_stage = time.perf_counter()
-    print(f"[{tag}] 温度重采样开始")
-    resampled_list = []
-    for i in range(n_batch):
-        demo_i = process_batch_df.iloc[[i]]
-        row_sim_t = all_sim_t_batch.iloc[[i]]
-        time_values = sorted(
-            {float(col[:-3]) for col in row_sim_t.columns if col.endswith("(0)")},
-            key=float,
-        )
-        tem0_i = [float(row_sim_t.iloc[0][f"{t:.2f}(0)"]) for t in time_values]
-        tem1_i = [float(row_sim_t.iloc[0][f"{t:.2f}(1)"]) for t in time_values]
-        resampled_i = pred.resample_sim_data(time_values, tem0_i, tem1_i, process_data=demo_i)
-        resampled_list.append(resampled_i)
-    process_data_new_batch = pd.concat(resampled_list, axis=0, ignore_index=True)
-    print(f"[{tag}] 温度重采样完成，用时 {time.perf_counter() - t_stage:.2f}s")
-
-    t_stage = time.perf_counter()
-    print(f"[{tag}] 力学性能预测开始")
-    predict_device = os.getenv("STELMOR_PREDICT_DEVICE", "auto")
-    Ts_batch = pred.predict_Ts(process_data_new_batch, device=predict_device)
-    Ts_batch = np.asarray(Ts_batch, dtype=np.float64).reshape(-1)
-    if Ts_batch.size == 1 and n_batch > 1:
-        Ts_batch = np.repeat(Ts_batch, n_batch)
-    if Ts_batch.size != n_batch:
-        raise ValueError(f"predict_Ts 返回长度异常，期望 {n_batch}，实际 {Ts_batch.size}")
-    print(f"[{tag}] 力学性能预测完成，用时 {time.perf_counter() - t_stage:.2f}s")
-
-    # ── 阶段 4: 专家约束评价 + 评分聚合 ──
-    # Score = k_MP * MP_cost + k_EK * (EK_penalty - w_bonus * EK_bonus)
+    # ── 阶段 3: 专家约束评价 + 评分聚合 ──
+    # Score = penalty（纯惩罚系统）
     scores = np.full(n_batch, float("inf"), dtype=np.float64)
     for i in range(n_batch):
-        if not feasible_mask[i]:
-            continue  # 保持 inf
-
         vals = ec.extract_from_state_data(state_data_list[i])
-        feasible, penalty, bonus, details = ec.evaluate_constraints(
-            vals, pred_TS=float(Ts_batch[i]), pred_Z=None
-        )
-        ek_penalty = penalty + pre_penalties[i]  # 专家知识惩罚（含预检查）
-        ek_bonus = bonus
-        score = ec.compute_total_score(feasible, ek_penalty, ek_bonus, mp_cost=0.0)
+        spd_i = [float(X_arr[i][j]) for j in range(1, 11)]
+        ort_i = float(X_arr[i][0])
+        penalty, details = ec.evaluate_constraints(vals, speeds=spd_i, ort=ort_i)
+        ek_penalty = penalty + pre_penalties[i]
+        score = ec.compute_total_score(ek_penalty)
         scores[i] = score
 
         if i == 0 or (i < 3 and batch_tag == "Init"):
-            print(f"[{tag}] 样本[{i}] TS={Ts_batch[i]:.0f} cr_pearl={vals.get('cr_pearl','?'):.1f} "
+            print(f"[{tag}] 样本[{i}] cr_pearl={vals.get('cr_pearl','?'):.1f} "
                   f"pearl={vals.get('pearl_frac',0):.3f} dT={vals.get('max_dT_total',0):.1f} "
-                  f"feasible={feasible} EK_penalty={ek_penalty:.2f} EK_bonus={ek_bonus:.1f} score={score:.2f}")
+                  f"penalty={ek_penalty:.2f} score={score:.2f}")
 
     return scores
 
@@ -200,11 +163,11 @@ def _clamp_to_bounds(X, lb, ub):
 
 
 def _repair_speeds(X, lb, ub):
-    """修复 H7 硬约束：确保相邻段辊速比 ≤ 1.5。
+    """修复 H7 硬约束：确保相邻段辊速比 ≤ 1.5，并圆整到 0.01。
 
     从 SPEED1 向后级联：每段的辊速被限制在 [prev/1.5, prev*1.5] 内。
     SPEED 索引对应 X[1:11]（ORT 在 X[0]，FAN1~10 在 X[11:21]）。
-    修复后再夹紧到全局边界。
+    修复后圆整到 0.01 m/s，再夹紧到全局边界。
     """
     X_r = np.clip(X, lb, ub)
     for i in range(2, 11):  # SPEED2 ~ SPEED10
@@ -213,6 +176,8 @@ def _repair_speeds(X, lb, ub):
         hi = prev * 1.5
         if X_r[i] < lo or X_r[i] > hi:
             X_r[i] = np.clip(X_r[i], lo, hi)
+        X_r[i] = np.round(X_r[i], 2)
+    X_r[1] = np.round(X_r[1], 2)  # SPEED1 也圆整
     return np.clip(X_r, lb, ub)
 
 
@@ -569,7 +534,7 @@ def main():
     Score = k_MP * MP_cost + k_EK * (EK_penalty - w_bonus * EK_bonus)
     MP_cost 暂为 0（力学性能数据不完全），当前仅专家知识项生效。
     """
-    MaxIter = 200
+    MaxIter = 100       
     PopSize = 30
 
     lb, ub, dim = get_search_bounds()

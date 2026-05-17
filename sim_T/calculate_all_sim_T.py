@@ -308,7 +308,7 @@ def _worker_simulate(item):
     try:
         row = pd.Series(row_dict)
         tem1, tem0, _ = _get_initial_temperature_from_row(row)
-        history_time, history_t0, history_t1, state, _roll_rt = run_single_simulation(
+        history_time, history_t0, history_t1, state, roll_start_time = run_single_simulation(
             row, tem1=tem1, tem0=tem0,
             dt_override=dt_override, param_dict=param_dict,
         )
@@ -336,6 +336,7 @@ def _worker_simulate(item):
                 "ferrite_0_surface": np.interp(int_time, full_time, ferrite_surf),
                 "ferrite_final_0": np.array(state.ferrite_final_0, dtype=np.float64),
                 "f_total_0": np.array(state.f_total_0, dtype=np.float64),
+                "roll_start_time": roll_start_time,
             }
 
         return idx, sim_cols, state_data, None
