@@ -143,7 +143,8 @@ def stelmor_batch_cost_function(X_batch, batch_tag=""):
         vals = ec.extract_from_state_data(state_data_list[i])
         spd_i = [float(X_arr[i][j]) for j in range(1, 11)]
         ort_i = float(X_arr[i][0])
-        penalty, details = ec.evaluate_constraints(vals, speeds=spd_i, ort=ort_i)
+        fan_i = [float(X_arr[i][j]) for j in range(11, 21)]
+        penalty, details = ec.evaluate_constraints(vals, speeds=spd_i, ort=ort_i, fans=fan_i)
         ek_penalty = penalty + pre_penalties[i]
         score = ec.compute_total_score(ek_penalty)
         scores[i] = score
@@ -534,7 +535,7 @@ def main():
     Score = k_MP * MP_cost + k_EK * (EK_penalty - w_bonus * EK_bonus)
     MP_cost 暂为 0（力学性能数据不完全），当前仅专家知识项生效。
     """
-    MaxIter = 100       
+    MaxIter = 500     
     PopSize = 30
 
     lb, ub, dim = get_search_bounds()

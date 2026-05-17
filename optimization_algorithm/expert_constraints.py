@@ -92,10 +92,10 @@ CONSTRAINT_SPECS = [
     },
     {
         "name": "S5a_speed_decrease",
-        "tier": 1,
+        "tier": 2,
         "source": "speed_decrease",
-        "tol": 0.05,
-        "norm": 0.05,
+        "tol": 0.10,
+        "norm": 0.10,
     },
     {
         "name": "S5b_speed_increase",
@@ -143,18 +143,15 @@ CONSTRAINT_SPECS = [
         "norm": 400.0,
     },
     {
-        "name": "S12_speed_dev",
+        "name": "S12_process_dev",
         "tier": 3,
-        "source": "speed_deviation",
-        "ref": [1.173, 1.270, 1.369, 1.427, 1.423, 1.453, 1.450, 1.453, 1.459, 1.556],
-        "tol": 0.08,
-    },
-    {
-        "name": "S14_ort_dev",
-        "tier": 3,
-        "source": "ort",
-        "target": 910.0,
-        "norm": 20.0,
+        "source": "process_deviation",
+        "speed_ref": [0.824, 0.824, 0.882, 0.882, 0.970, 0.970, 1.074, 1.074, 1.100, 1.100],
+        "speed_tol": 0.08,
+        "ort_target": 900.0,
+        "ort_norm": 10.0,
+        "fan_ref": [0, 99, 60, 50, 0, 0, 0, 0, 0, 0],
+        "fan_tol": 10.0,
     },
 ]
 
@@ -437,14 +434,15 @@ def extract_from_state_data(state_data, C=0.82, Si=0.25, Mn=0.50, Cr=0.20, Ni=0.
 # 3. 约束评价（纯惩罚，spec 驱动）
 # ═══════════════════════════════════════════════════════════════
 
-def evaluate_constraints(vals, speeds=None, ort=None):
+def evaluate_constraints(vals, speeds=None, ort=None, fans=None):
     """
     对所有约束逐条评价，返回总惩罚。
 
     参数：
         vals:   dict, extract_from_state / extract_from_state_data 输出
-        speeds: list[float] 或 None, 10 段辊速（用于 S5/S12）
-        ort:    float 或 None, 吐丝温度（用于 S14）
+        speeds: list[float] 或 None, 10 段辊速
+        ort:    float 或 None, 吐丝温度
+        fans:   list[float] 或 None, 10 段风机开度 (%)
 
     返回：
         (penalty: float, details: dict)
@@ -453,7 +451,7 @@ def evaluate_constraints(vals, speeds=None, ort=None):
     details = {}
 
     for spec in CONSTRAINT_SPECS:
-        p = _eval_spec(spec, vals, speeds, ort)
+        p = _eval_spec(spec, vals, speeds, ort, fans)
         if p > 0:
             penalty += p
             details[spec["name"]] = p
@@ -461,7 +459,7 @@ def evaluate_constraints(vals, speeds=None, ort=None):
     return penalty, details
 
 
-def _eval_spec(spec, vals, speeds, ort):
+def _eval_spec(spec, vals, speeds, ort, fans):
     """对单个 spec 计算惩罚值。"""
     src = spec["source"]
 
@@ -522,23 +520,24 @@ def _eval_spec(spec, vals, speeds, ort):
                     total += apply_penalty(d, spec["tier"])
         return total
 
-    elif src == "speed_deviation":
-        if speeds is None:
-            return 0.0
+    elif src == "process_deviation":
         total = 0.0
-        ref = spec["ref"]
-        tol = spec["tol"]
-        for s, r in zip(speeds, ref):
-            dev = abs(s - r)
-            d = max(0.0, dev - tol) / tol
-            total += apply_penalty(d, spec["tier"])
+        tier = spec["tier"]
+        # 速度偏离
+        if speeds is not None:
+            for s, r in zip(speeds, spec["speed_ref"]):
+                d = max(0.0, abs(s - r) - spec["speed_tol"]) / spec["speed_tol"]
+                total += apply_penalty(d, tier)
+        # ORT 偏离
+        if ort is not None:
+            d = abs(ort - spec["ort_target"]) / spec["ort_norm"]
+            total += apply_penalty(d, tier)
+        # 风机偏离
+        if fans is not None:
+            for f, r in zip(fans, spec["fan_ref"]):
+                d = max(0.0, abs(f - r) - spec["fan_tol"]) / spec["fan_tol"]
+                total += apply_penalty(d, tier)
         return total
-
-    elif src == "ort":
-        if ort is None:
-            return 0.0
-        d = abs(ort - spec["target"]) / spec["norm"]
-        return apply_penalty(d, spec["tier"])
 
     return 0.0
 
@@ -562,8 +561,8 @@ def pre_check_bounds(params):
         if speeds[i-1] > 0 and speeds[i] > 0:
             ratio = speeds[i] / speeds[i-1]
             if ratio < 1.0:
-                d = max(0.0, (1.0 - ratio) - 0.05) / 0.05
-                penalty += apply_penalty(d, 1)  # T1 exp
+                d = max(0.0, (1.0 - ratio) - 0.10) / 0.10
+                penalty += apply_penalty(d, 2)  # T2 d²
             elif ratio > 1.0:
                 d = max(0.0, (ratio - 1.0) - 0.20) / 0.20
                 penalty += apply_penalty(d, 2)  # T2 d²

@@ -206,18 +206,12 @@ def _apply_process_row_to_sim(row, rolls):
     for col, idx in speed_map.items():
         val = _safe_float(row.get(col))
         if val is not None and val > 0:
-            old_v = rolls[idx].roll_v
             rolls[idx].roll_v = val
-            rolls[idx].t = rolls[idx].t * (old_v / val)
-            rolls[idx].step = int(rolls[idx].t / sim._default_dt)
 
     # 入口段速度
     entry_speed = _safe_float(row.get("SPEED1"))
     if entry_speed is not None and entry_speed > 0:
-        old_v = rolls[0].roll_v
         rolls[0].roll_v = entry_speed
-        rolls[0].t = rolls[0].t * (old_v / entry_speed)
-        rolls[0].step = int(rolls[0].t / sim._default_dt)
 
     # 风机开度映射 (FAN1~FAN10)
     fan_map = {f"FAN{i}": i for i in range(1, 11)}

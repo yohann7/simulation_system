@@ -43,7 +43,7 @@ def _np(v):
     return v
 
 def sim_one(row):
-    """Simulate one data row, return (vals_dict, speeds_list, ort)."""
+    """Simulate one data row, return (vals_dict, speeds_list, ort, fans_list)."""
     ort = _sf(row.get("ORT")) or 850
     for e, a in [("C_ELE","ELM_C"),("SI_ELE","ELM_SI"),("MN_ELE","ELM_MN"),
                  ("NI_ELE","ELM_NI"),("CR_ELE","ELM_CR")]:
@@ -55,16 +55,10 @@ def sim_one(row):
     for i in range(1, 11):
         v = _sf(row.get('SPEED%d' % i))
         if v is not None and v > 0:
-            ov = rolls[i].roll_v
             rolls[i].roll_v = v
-            rolls[i].t = rolls[i].t * (ov / v)
-            rolls[i].step = int(rolls[i].t / sim._default_dt)
     ev = _sf(row.get("SPEED1"))
     if ev is not None and ev > 0:
-        ov = rolls[0].roll_v
         rolls[0].roll_v = ev
-        rolls[0].t = rolls[0].t * (ov / ev)
-        rolls[0].step = int(rolls[0].t / sim._default_dt)
 
     for i in range(1, 11):
         v = _sf(row.get('FAN%d' % i))
@@ -76,7 +70,8 @@ def sim_one(row):
     state, rt = sim.run_full_simulation(rolls, tem1=ort, tem0=ort, dt=0.01)
     vals = ec.extract_from_state(state, sim.basic_info, rt)
     speeds = [_sf(row.get('SPEED%d' % i)) or 1.0 for i in range(1, 11)]
-    return vals, speeds, ort
+    fans = [_sf(row.get('FAN%d' % i)) or 0.0 for i in range(1, 11)]
+    return vals, speeds, ort, fans
 
 # Cache all 30 records
 print("=" * 60)
@@ -94,16 +89,16 @@ def score_all_records():
     """Score all cached records with current TIER_CFG. Returns tier dicts."""
     tiers = {'B': [], 'M': [], 'W': []}
     for idx in BEST:
-        v, spd, ort = cache[idx]
-        p, _ = ec.evaluate_constraints(v, speeds=spd, ort=ort)
+        v, spd, ort, fan = cache[idx]
+        p, _ = ec.evaluate_constraints(v, speeds=spd, ort=ort, fans=fan)
         tiers['B'].append(p)
     for idx in MED:
-        v, spd, ort = cache[idx]
-        p, _ = ec.evaluate_constraints(v, speeds=spd, ort=ort)
+        v, spd, ort, fan = cache[idx]
+        p, _ = ec.evaluate_constraints(v, speeds=spd, ort=ort, fans=fan)
         tiers['M'].append(p)
     for idx in WORST:
-        v, spd, ort = cache[idx]
-        p, _ = ec.evaluate_constraints(v, speeds=spd, ort=ort)
+        v, spd, ort, fan = cache[idx]
+        p, _ = ec.evaluate_constraints(v, speeds=spd, ort=ort, fans=fan)
         tiers['W'].append(p)
     return tiers
 
@@ -169,18 +164,18 @@ def evaluate_coefficients(coeff_vector):
         tiers = {'B': [], 'M': [], 'W': []}
 
         for idx in BEST:
-            v, spd, ort = cache[idx]
-            p, _ = ec.evaluate_constraints(v, speeds=spd, ort=ort)
+            v, spd, ort, fan = cache[idx]
+            p, _ = ec.evaluate_constraints(v, speeds=spd, ort=ort, fans=fan)
             tiers['B'].append(p)
 
         for idx in MED:
-            v, spd, ort = cache[idx]
-            p, _ = ec.evaluate_constraints(v, speeds=spd, ort=ort)
+            v, spd, ort, fan = cache[idx]
+            p, _ = ec.evaluate_constraints(v, speeds=spd, ort=ort, fans=fan)
             tiers['M'].append(p)
 
         for idx in WORST:
-            v, spd, ort = cache[idx]
-            p, _ = ec.evaluate_constraints(v, speeds=spd, ort=ort)
+            v, spd, ort, fan = cache[idx]
+            p, _ = ec.evaluate_constraints(v, speeds=spd, ort=ort, fans=fan)
             tiers['W'].append(p)
 
         b_arr = np.array(tiers['B'])
